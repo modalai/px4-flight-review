@@ -15,6 +15,7 @@ docker run -it --rm --network=host px4flightreview
 #then open browser at `http://localhost:5006/`, and upload the log file for processing
 ```
 
+## Project Description
 This is a web application for flight log analysis. It allows users to upload
 ULog flight logs, and analyze them through the browser.
 
