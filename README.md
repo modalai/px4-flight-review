@@ -1,6 +1,19 @@
 # Flight Review
 
-[![Build Status](https://travis-ci.org/PX4/flight_review.svg?branch=master)](https://travis-ci.org/PX4/flight_review)
+<!-- [![Build Status](https://travis-ci.org/PX4/flight_review.svg?branch=master)](https://travis-ci.org/PX4/flight_review) -->
+
+## Quickstart Guide
+```
+# installation (requires Docker)
+git clone --recursive https://github.com/modalai/px4-flight-review
+cd px4-flight-review/app
+docker build -t px4flightreview -f Dockerfile .
+
+# start server
+docker run -it --rm --network=host px4flightreview
+
+#then open browser at `http://localhost:5006/`, and upload the log file for processing
+```
 
 This is a web application for flight log analysis. It allows users to upload
 ULog flight logs, and analyze them through the browser.
