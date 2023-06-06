@@ -271,7 +271,6 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
         if data_plot.finalize() is not None: plots.append(data_plot)
 
 
-
     # Local position
     for axis in ['x', 'y', 'z']:
         data_plot = DataPlot(data, plot_config, 'vehicle_local_position',
@@ -626,6 +625,23 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
                 plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
 
                 if data_plot.finalize() is not None: plots.append(data_plot)
+
+    
+    # Actual RPMs Reported by the ESCs
+    data_plot = DataPlot(data, plot_config, 'esc_status',
+                         y_axis_label='[RPM]', title='Reported Motor RPM',
+                         plot_height='small', changed_params=changed_params,
+                         x_range=x_range)
+
+    
+    data_plot.change_dataset('esc_status')
+    data_plot.add_graph(['esc[0].esc_rpm','esc[1].esc_rpm','esc[2].esc_rpm','esc[3].esc_rpm'],
+        [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 RPM','ESC1 RPM','ESC2 RPM','ESC3 RPM'])
+
+    if data_plot.finalize() is not None: plots.append(data_plot)
+    ####
+
+
 
     # raw acceleration
     data_plot = DataPlot(data, plot_config, 'sensor_combined',
