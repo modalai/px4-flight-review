@@ -628,25 +628,29 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
 
     
     # Commanded RPMs
-    data_plot = DataPlot(data, plot_config, 'actuator_outputs_debug',
-                         y_axis_label='[RPM]', title='Commanded Motor RPM',
+    #data_plot = DataPlot(data, plot_config, 'actuator_outputs_debug',
+    #                     y_axis_label='[RPM]', title='Commanded Motor RPM',
+    #                     plot_height='small', changed_params=changed_params,
+    #                     x_range=x_range)
+
+    
+    #data_plot.change_dataset('actuator_outputs_debug')
+    #data_plot.add_graph(['output[0]','output[1]','output[2]','output[3]'],
+    #    [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 RPM Cmd','ESC1 RPM Cmd','ESC2 RPM Cmd','ESC3 RPM Cmd'])
+
+    #if data_plot.finalize() is not None: plots.append(data_plot)
+    
+    
+    # Actual RPMs Reported by the ESCs
+    data_plot = DataPlot(data, plot_config, 'esc_status',
+                         y_axis_label='[RPM]', title='Commanded and Reported Motor RPM',
                          plot_height='small', changed_params=changed_params,
                          x_range=x_range)
 
     
     data_plot.change_dataset('actuator_outputs_debug')
     data_plot.add_graph(['output[0]','output[1]','output[2]','output[3]'],
-        [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 RPM Cmd','ESC1 RPM Cmd','ESC2 RPM Cmd','ESC3 RPM Cmd'])
-
-    if data_plot.finalize() is not None: plots.append(data_plot)
-    
-    
-    # Actual RPMs Reported by the ESCs
-    data_plot = DataPlot(data, plot_config, 'esc_status',
-                         y_axis_label='[RPM]', title='Reported Motor RPM',
-                         plot_height='small', changed_params=changed_params,
-                         x_range=x_range)
-
+        [colors8[4],colors8[5],colors8[6],colors8[7]], ['ESC0 RPM Cmd','ESC1 RPM Cmd','ESC2 RPM Cmd','ESC3 RPM Cmd'])
     
     data_plot.change_dataset('esc_status')
     data_plot.add_graph(['esc[0].esc_rpm','esc[1].esc_rpm','esc[2].esc_rpm','esc[3].esc_rpm'],
