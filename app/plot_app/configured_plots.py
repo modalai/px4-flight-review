@@ -648,10 +648,20 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
                          x_range=x_range)
 
     
+    # Plot absolute value of the commanded RPMs, so that it's easier to compare with unsigned RPMs in feedback
     data_plot.change_dataset('actuator_outputs_debug')
-    data_plot.add_graph(['output[0]','output[1]','output[2]','output[3]'],
-        [colors8[4],colors8[5],colors8[6],colors8[7]], ['ESC0 RPM Cmd','ESC1 RPM Cmd','ESC2 RPM Cmd','ESC3 RPM Cmd'])
+    for i in range(4):
+        output_data = np.abs(data_plot.dataset.data['output['+str(i)+']'])
+        
+        data_plot.add_graph([lambda data: ('output['+str(i)+']', output_data)],
+        [colors8[i+4]], ['ESC'+str(i)+' RPM Cmd'])
     
+    
+    # This would plot signed values of commanded RPMs
+    #data_plot.change_dataset('actuator_outputs_debug')
+    #data_plot.add_graph(['output[0]','output[1]','output[2]','output[3]'],
+    #    [colors8[4],colors8[5],colors8[6],colors8[7]], ['ESC0 RPM Cmd','ESC1 RPM Cmd','ESC2 RPM Cmd','ESC3 RPM Cmd'])
+        
     data_plot.change_dataset('esc_status')
     data_plot.add_graph(['esc[0].esc_rpm','esc[1].esc_rpm','esc[2].esc_rpm','esc[3].esc_rpm'],
         [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 RPM','ESC1 RPM','ESC2 RPM','ESC3 RPM'])
