@@ -649,13 +649,15 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
 
     
     # Plot absolute value of the commanded RPMs, so that it's easier to compare with unsigned RPMs in feedback
-    data_plot.change_dataset('actuator_outputs_debug')
-    for i in range(4):
-        output_data = np.abs(data_plot.dataset.data['output['+str(i)+']'])
-        
-        data_plot.add_graph([lambda data: ('output['+str(i)+']', output_data)],
-        [colors8[i+4]], ['ESC'+str(i)+' RPM Cmd'])
-    
+    try:
+        data_plot.change_dataset('actuator_outputs_debug')
+        for i in range(4):
+            output_data = np.abs(data_plot.dataset.data['output['+str(i)+']'])
+            
+            data_plot.add_graph([lambda data: ('output['+str(i)+']', output_data)],
+            [colors8[i+4]], ['ESC'+str(i)+' RPM Cmd'])
+    except Exception as e:
+        print("Warning: not able to process actuator_outputs_debug: ",e)
     
     # This would plot signed values of commanded RPMs
     #data_plot.change_dataset('actuator_outputs_debug')
