@@ -671,6 +671,19 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
     if data_plot.finalize() is not None: plots.append(data_plot)
     ####
     
+    # Command Counter Reported by ESCs
+    data_plot = DataPlot(data, plot_config, 'esc_status',
+                         y_axis_label='[Command Counter]', title='Counter of commands received by ESC',
+                         plot_height='small', changed_params=changed_params,
+                         x_range=x_range)
+
+    data_plot.change_dataset('esc_status')
+    data_plot.add_graph(['esc[0].esc_cmdcount','esc[1].esc_cmdcount','esc[2].esc_cmdcount','esc[3].esc_cmdcount'],
+        [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 Cmd Count','ESC1 Cmd Count','ESC2 Cmd Count','ESC3 Cmd Count'])
+
+    if data_plot.finalize() is not None: plots.append(data_plot)
+    ####
+    
     # Current Reported by ESCs
     data_plot = DataPlot(data, plot_config, 'esc_status',
                          y_axis_label='[Current (A)]', title='Reported ESC Current',
@@ -695,10 +708,11 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
     data_plot.add_graph(['esc[0].esc_temperature','esc[1].esc_temperature','esc[2].esc_temperature','esc[3].esc_temperature'],
         [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 Temperature','ESC1 Temperature','ESC2 Temperature','ESC3 Temperature'])
 
-    if data_plot.finalize() is not None: plots.append(data_plot)
+    if data_plot.finalize() is not None: plots.append(data_plot)  
+    
     ####
-
-
+    
+        
 
     # raw acceleration
     data_plot = DataPlot(data, plot_config, 'sensor_combined',
