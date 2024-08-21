@@ -308,7 +308,7 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
                              y_axis_label='[m]', title='Visual Odometry Position',
                              plot_height='small', changed_params=changed_params,
                              x_range=x_range)
-        data_plot.add_graph(['x', 'y', 'z'], colors3, ['X', 'Y', 'Z'], mark_nan=True)
+        data_plot.add_graph(['position[0]', 'position[1]', 'position[2]'], colors3, ['X', 'Y', 'Z'], mark_nan=True)
         plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
 
         data_plot.change_dataset('vehicle_local_position_groundtruth')
@@ -323,7 +323,7 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
                              y_axis_label='[m]', title='Visual Odometry Velocity',
                              plot_height='small', changed_params=changed_params,
                              x_range=x_range)
-        data_plot.add_graph(['vx', 'vy', 'vz'], colors3, ['X', 'Y', 'Z'], mark_nan=True)
+        data_plot.add_graph(['velocity[0]', 'velocity[1]', 'velocity[2]'], colors3, ['X', 'Y', 'Z'], mark_nan=True)
         plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
 
         data_plot.change_dataset('vehicle_local_position_groundtruth')
@@ -333,6 +333,8 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
 
 
         # Vision attitude
+        # WARNING: RPY plot is not working because the message definition changed, does not have roll, pitch yaw but q (quaternion)
+        # TODO: fix this
         data_plot = DataPlot(data, plot_config, 'vehicle_visual_odometry',
                              y_axis_label='[deg]', title='Visual Odometry Attitude',
                              plot_height='small', changed_params=changed_params,
@@ -357,9 +359,9 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
                              y_axis_label='[deg]', title='Visual Odometry Attitude Rate',
                              plot_height='small', changed_params=changed_params,
                              x_range=x_range)
-        data_plot.add_graph([lambda data: ('rollspeed', np.rad2deg(data['rollspeed'])),
-                             lambda data: ('pitchspeed', np.rad2deg(data['pitchspeed'])),
-                             lambda data: ('yawspeed', np.rad2deg(data['yawspeed']))],
+        data_plot.add_graph([lambda data: ('rollspeed', np.rad2deg(data['angular_velocity[0]'])),
+                             lambda data: ('pitchspeed', np.rad2deg(data['angular_velocity[1]'])),
+                             lambda data: ('yawspeed', np.rad2deg(data['angular_velocity[2]']))],
                             colors3, ['Roll Rate', 'Pitch Rate', 'Yaw Rate'], mark_nan=True)
         plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
 
@@ -383,6 +385,17 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
             colors3, ['VIO Latency'], mark_nan=True)
         plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
 
+        if data_plot.finalize() is not None: plots.append(data_plot)
+        
+        
+        # VIO Quality
+        data_plot = DataPlot(data, plot_config, 'vehicle_visual_odometry',
+                             y_axis_label='[ms]', title='Visual Odometry Quality',
+                             plot_height='small', changed_params=changed_params,
+                             x_range=x_range)
+        
+        data_plot.change_dataset('vehicle_visual_odometry')
+        data_plot.add_graph(['quality'],[colors8[0]], ['VIO Quality'])
         if data_plot.finalize() is not None: plots.append(data_plot)
 
     # Airspeed vs Ground speed: but only if there's valid airspeed data or a VTOL
