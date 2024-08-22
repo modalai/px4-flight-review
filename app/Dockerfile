@@ -10,11 +10,13 @@ RUN apt-get	update && \
 	apt-get -y autoremove && \
 	rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/service/data
+#RUN mkdir -p /opt/service/data
+RUN mkdir -p /opt/service
 COPY [".", "/opt/service/"]
 
 WORKDIR /opt/service
-EXPOSE 5006
+#EXPOSE 5006
+#EXPOSE 80
 CMD ["/opt/service/run.sh"]
 
 ## USAGE
