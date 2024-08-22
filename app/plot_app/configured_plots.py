@@ -1040,15 +1040,25 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
         print('Error in failsafe plot: '+str(error))
 
 
-    # cpu load
-    data_plot = DataPlot(data, plot_config, 'cpuload',
+    # DSP load
+    data_plot = DataPlot(data, plot_config, 'cpuload', topic_instance=0,
+                         title='DSP Usage', plot_height='small', y_range=Range1d(0, 1),
+                         changed_params=changed_params, x_range=x_range)
+    data_plot.add_graph(['system_load'], [colors3[2]],
+                        ['DSP Load'])
+    #data_plot.add_span('system_load', line_color=colors3[2])
+    #plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
+    if data_plot.finalize() is not None: plots.append(data_plot)
+    
+    # CPU load
+    data_plot = DataPlot(data, plot_config, 'cpuload', topic_instance=1,
                          title='CPU & RAM', plot_height='small', y_range=Range1d(0, 1),
                          changed_params=changed_params, x_range=x_range)
-    data_plot.add_graph(['ram_usage', 'load'], [colors3[1], colors3[2]],
-                        ['RAM Usage', 'CPU Load'])
-    data_plot.add_span('load', line_color=colors3[2])
-    data_plot.add_span('ram_usage', line_color=colors3[1])
-    plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
+    data_plot.add_graph(['ram_usage', 'system_load', 'process_load'], [colors3[0], colors3[1], colors3[2]],
+                        ['RAM Usage', 'CPU Load', 'Process Load'])
+    #data_plot.add_span('system_load', line_color=colors3[2])
+    #data_plot.add_span('ram_usage', line_color=colors3[1])
+    #plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
     if data_plot.finalize() is not None: plots.append(data_plot)
 
 
