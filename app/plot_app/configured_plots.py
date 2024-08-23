@@ -189,10 +189,10 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
     data_plot.change_dataset('position_setpoint_triplet')
     data_plot.add_circle(['current.alt'], [plot_config['mission_setpoint_color']],
                          ['Altitude Setpoint'])
-    data_plot.change_dataset(actuator_controls_0.thrust_sp_topic)
-    if actuator_controls_0.thrust_z_neg is not None:
-        data_plot.add_graph([lambda data: ('thrust', actuator_controls_0.thrust_z_neg*100)],
-                            colors8[6:7], ['Thrust [0, 100]'])
+    #data_plot.change_dataset(actuator_controls_0.thrust_sp_topic)
+    #if actuator_controls_0.thrust_z_neg is not None:
+    #    data_plot.add_graph([lambda data: ('thrust', actuator_controls_0.thrust_z_neg*100)],
+    #                        colors8[6:7], ['Thrust [0, 100]'])
     plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states)
 
     if data_plot.finalize() is not None: plots.append(data_plot)
