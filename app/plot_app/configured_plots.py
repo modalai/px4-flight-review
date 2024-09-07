@@ -697,6 +697,19 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
     if data_plot.finalize() is not None: plots.append(data_plot)
     ####
     
+    # Voltage Reported by ESCs
+    data_plot = DataPlot(data, plot_config, 'esc_status',
+                         y_axis_label='[Voltage (V)]', title='Reported ESC Voltage',
+                         plot_height='small', changed_params=changed_params,
+                         x_range=x_range)
+
+    
+    data_plot.change_dataset('esc_status')
+    data_plot.add_graph(['esc[0].esc_voltage','esc[1].esc_voltage','esc[2].esc_voltage','esc[3].esc_voltage'],
+        [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 Voltage','ESC1 Voltage','ESC2 Voltage','ESC3 Voltage'])
+
+    if data_plot.finalize() is not None: plots.append(data_plot)
+    
     # Current Reported by ESCs
     data_plot = DataPlot(data, plot_config, 'esc_status',
                          y_axis_label='[Current (A)]', title='Reported ESC Current',
@@ -706,7 +719,7 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
     
     data_plot.change_dataset('esc_status')
     data_plot.add_graph(['esc[0].esc_current','esc[1].esc_current','esc[2].esc_current','esc[3].esc_current'],
-        [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 Current','ESC1 Current','ESC2 current','ESC3 Current'])
+        [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 Current','ESC1 Current','ESC2 Current','ESC3 Current'])
 
     if data_plot.finalize() is not None: plots.append(data_plot)
     
