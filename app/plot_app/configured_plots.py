@@ -683,7 +683,21 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
 
     if data_plot.finalize() is not None: plots.append(data_plot)
     ####
-    
+
+    # Power Applied by ESCs (PWM duty cycle, 0-100%)
+    data_plot = DataPlot(data, plot_config, 'esc_status',
+                         y_axis_label='[Power (%)]', title='Reported ESC Power',
+                         plot_height='small', changed_params=changed_params,
+                         x_range=x_range)
+
+
+    data_plot.change_dataset('esc_status')
+    data_plot.add_graph(['esc[0].esc_power','esc[1].esc_power','esc[2].esc_power','esc[3].esc_power'],
+        [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 Power','ESC1 Power','ESC2 Power','ESC3 Power'])
+
+    if data_plot.finalize() is not None: plots.append(data_plot)
+    ####
+
     # Command Counter Reported by ESCs
     data_plot = DataPlot(data, plot_config, 'esc_status',
                          y_axis_label='[Command Counter]', title='Counter of commands received by ESC',
@@ -722,7 +736,7 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
         [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 Current','ESC1 Current','ESC2 Current','ESC3 Current'])
 
     if data_plot.finalize() is not None: plots.append(data_plot)
-    
+
     # Temperatures Reported by ESCs
     data_plot = DataPlot(data, plot_config, 'esc_status',
                          y_axis_label='[Temperature (deg C)]', title='Reported ESC Temperature',
