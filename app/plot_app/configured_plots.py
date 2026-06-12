@@ -23,6 +23,38 @@ from vtol_tailsitter import *
 #pylint: disable=consider-using-enumerate,too-many-statements
 
 
+# Color per GNSS constellation (ported from voxl-portal gps_graph.js)
+satellite_constellation_colors = {
+    'GPS':     '#9ecae1',  # Light blue
+    'SBAS':    '#ffa500',  # Orange
+    'Galileo': '#90ee90',  # Light green
+    'BeiDou':  '#ff6347',  # Tomato
+    'QZSS':    '#ffd700',  # Gold
+    'GLONASS': '#1f78b4',  # Darker blue (distinguished from GPS)
+    'NavIC':   '#ffc0cb',  # Pink
+}
+
+def translate_prn(prn):
+    """ Map a satellite PRN number to its (constellation, code).
+    Ported from voxl-portal gps_graph.js translate_prn(). """
+    if 1 <= prn <= 32:
+        return 'GPS', 'G' + str(prn)
+    if 120 <= prn <= 158:
+        return 'SBAS', 'S' + str(prn)
+    if 211 <= prn <= 246:
+        return 'Galileo', 'E' + str(prn - 210)
+    if 159 <= prn <= 163:
+        return 'BeiDou', 'B' + str(prn - 158)
+    if 33 <= prn <= 64:
+        return 'BeiDou', 'B' + str(prn - 27)
+    if 193 <= prn <= 202:
+        return 'QZSS', 'Q' + str(prn - 192)
+    if 65 <= prn <= 96:
+        return 'GLONASS', 'R' + str(prn - 64)
+    if 247 <= prn <= 253:
+        return 'NavIC', 'N' + str(prn - 246)
+    return '', ''
+
 
 def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
                    link_to_pid_analysis_page):
@@ -927,6 +959,59 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
     data_plot.add_graph(['noise_per_ms', 'jamming_indicator'], colors3[0:2],
                         ['Noise per ms', 'Jamming Indicator'])
     if data_plot.finalize() is not None: plots.append(data_plot)
+
+
+    # Satellite signal strength: SNR vs time, one line per satellite,
+    # colored by constellation (sanity checks ported from voxl-portal)
+    if any(elem.name == 'satellite_info' for elem in ulog.data_list):
+        satellite_info = ulog.get_dataset('satellite_info')
+        sat = satellite_info.data
+        num_timestamps = len(sat['timestamp'])
+        num_slots = sat['count'].max() if 'count' in sat else 20
+        num_slots = int(num_slots)
+
+        # Reorganize from per-slot arrays into a per-satellite SNR time series.
+        # A given PRN can move between slots over time, so we scatter each
+        # slot's samples into the matching satellite's time series.
+        sat_series = {} # prn -> snr array over time (NaN where not observed)
+        for slot in range(num_slots):
+            prn_field = 'prn[%d]' % slot
+            snr_field = 'snr[%d]' % slot
+            if prn_field not in sat or snr_field not in sat:
+                continue
+            prn_arr = sat[prn_field].astype(int)
+            snr_arr = sat[snr_field].astype(float)
+            valid = (prn_arr != 0) & (prn_arr != 255) & (snr_arr != 0)
+            for prn in np.unique(prn_arr[valid]):
+                prn = int(prn)
+                if prn not in sat_series:
+                    sat_series[prn] = np.full(num_timestamps, np.nan)
+                slot_mask = valid & (prn_arr == prn)
+                sat_series[prn][slot_mask] = snr_arr[slot_mask]
+
+        if sat_series:
+            data_plot = DataPlot(data, plot_config, 'satellite_info',
+                                 y_axis_label='[SNR (dB-Hz)]',
+                                 title='Satellite Signal Strength (SNR)',
+                                 y_range=Range1d(0, 55),
+                                 plot_height='small', changed_params=changed_params,
+                                 x_range=x_range)
+            data_plot.change_dataset('satellite_info')
+
+            field_funcs = []
+            colors = []
+            legends = []
+            for prn in sorted(sat_series):
+                constellation, code = translate_prn(prn)
+                legend = code if code else 'PRN%d' % prn
+                snr_array = sat_series[prn]
+                field_funcs.append(
+                    lambda d, name=legend, arr=snr_array: (name, arr))
+                colors.append(satellite_constellation_colors.get(constellation, 'gray'))
+                legends.append(legend)
+
+            data_plot.add_graph(field_funcs, colors, legends)
+            if data_plot.finalize() is not None: plots.append(data_plot)
 
 
     # thrust and magnetic field
