@@ -780,8 +780,21 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
     data_plot.add_graph(['esc[0].esc_temperature','esc[1].esc_temperature','esc[2].esc_temperature','esc[3].esc_temperature'],
         [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 Temperature','ESC1 Temperature','ESC2 Temperature','ESC3 Temperature'])
 
-    if data_plot.finalize() is not None: plots.append(data_plot)  
-    
+    if data_plot.finalize() is not None: plots.append(data_plot)
+
+    # State Reported by ESCs
+    data_plot = DataPlot(data, plot_config, 'esc_status',
+                         y_axis_label='[State]', title='Reported ESC State',
+                         plot_height='small', changed_params=changed_params,
+                         x_range=x_range)
+
+
+    data_plot.change_dataset('esc_status')
+    data_plot.add_graph(['esc[0].esc_state','esc[1].esc_state','esc[2].esc_state','esc[3].esc_state'],
+        [colors8[0],colors8[1],colors8[2],colors8[3]], ['ESC0 State','ESC1 State','ESC2 State','ESC3 State'])
+
+    if data_plot.finalize() is not None: plots.append(data_plot)
+
     ####
     
         
