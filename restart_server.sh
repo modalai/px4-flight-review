@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -e -x
-CONTAINER_ID=`sudo docker ps -a -q --filter="name=flight-review"`
+CONTAINER_ID=`sudo docker ps -a -q --filter="name=^flight-review$"`
 
 echo "Found flight review container id $CONTAINER_ID"
 
