@@ -18,7 +18,7 @@ body {
 }
 h1 {
     margin: 2em 0 0 0;
-    color: #2e484c;
+    color: #2e6837;
     font-family: 'Titillium Web', sans-serif;
     font-size: 23px;
 	font-weight: 700;
@@ -192,6 +192,18 @@ table.dataTable td {
 #header .navbar-brand a:hover {
   /* avoids text underlining for the image */
   text-decoration: none;
+}
+
+#header .navbar-brand img {
+  height: 38px;
+  width: auto;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+#header .nav-link:hover,
+#header .nav-link:focus {
+  color: #2e6837;
 }
 
 .dropdown-item {
