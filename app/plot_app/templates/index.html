@@ -28,11 +28,24 @@ var pos_flight_modes = {{ pos_flight_modes }}; // list of [color, index of pos_d
 var waypoint_bounds = [];
 
 var mymap = L.map('mapid').setView([pos_datas[0][0], pos_datas[0][1]],15);
-L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token={accessToken}', {
-    attribution: 'Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
-    id: 'mapbox.satellite',
-    accessToken: '{{ mapbox_api_access_token }}'
-}).addTo(mymap);
+var mapboxToken = '{{ mapbox_api_access_token }}'.trim();
+if (mapboxToken.length > 0) {
+    // Mapbox satellite imagery (the old v4 raster tile API no longer serves tiles)
+    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}', {
+        attribution: 'Imagery © <a href="https://www.mapbox.com/">Mapbox</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        id: 'mapbox/satellite-v9',
+        tileSize: 512,
+        zoomOffset: -1,
+        maxZoom: 20,
+        accessToken: mapboxToken
+    }).addTo(mymap);
+} else {
+    // No Mapbox token configured: use Esri World Imagery, which needs no API key
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Imagery © <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, and the GIS User Community',
+        maxZoom: 19
+    }).addTo(mymap);
+}
 
 for(var j=0; j<pos_flight_modes.length - 1; j++) {
   var offset = -1;
