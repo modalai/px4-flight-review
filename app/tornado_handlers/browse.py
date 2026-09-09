@@ -292,7 +292,7 @@ def _get_columns_from_tuple(db_tuple, counter, all_overview_imgs, con, cur):
         image_col = f"""
             <div class="{rounded_div_class}" style="width:60px;">
                 <div class="no_map_overview text-warning">
-                    No Image Preview
+                    No GPS fix
                 </div>
             </div>
         """
