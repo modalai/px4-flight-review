@@ -15,6 +15,13 @@ docker run -it --rm --network=host px4flightreview
 #then open browser at `http://localhost:5006/`, and upload the log file for processing
 ```
 
+## Server deployment
+
+On the server the app runs from `start_server.sh` (container on port 5006, proxy mode)
+behind Caddy, which serves HTTPS with an automatic Let's Encrypt certificate. Install
+Caddy from the distribution packages and copy `ops/Caddyfile` to `/etc/caddy/Caddyfile`.
+To deploy a new version: `git pull`, `./build_docker.sh`, `./restart_server.sh`.
+
 ## Project Description
 This is a web application for flight log analysis. It allows users to upload
 ULog flight logs, and analyze them through the browser.
