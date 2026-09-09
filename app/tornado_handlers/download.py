@@ -8,7 +8,6 @@ from html import escape
 import sys
 import uuid
 import shutil
-import sqlite3
 import tornado.web
 
 from pyulog.ulog2kml import convert_ulog2kml
@@ -18,7 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../pl
 from helper import get_log_filename, validate_log_id, \
     flight_modes_table, load_ulog_file, get_default_parameters
 
-from config import get_db_filename, get_kml_filepath
+from config import get_db_connection, get_kml_filepath
 
 #pylint: disable=relative-beyond-top-level
 from .common import CustomHTTPError, TornadoRequestHandlerBase
@@ -43,8 +42,9 @@ class DownloadHandler(TornadoRequestHandlerBase):
             """
             get the uploaded file name & exchange the file extension
             """
+            con = None
             try:
-                con = sqlite3.connect(get_db_filename(), detect_types=sqlite3.PARSE_DECLTYPES)
+                con = get_db_connection()
                 cur = con.cursor()
                 cur.execute('select OriginalFilename '
                             'from Logs where Id = ?', [log_id])
@@ -54,25 +54,39 @@ class DownloadHandler(TornadoRequestHandlerBase):
                     if original_file_name[-4:].lower() == '.ulg':
                         original_file_name = original_file_name[:-4]
                     return original_file_name + new_file_suffix
-                cur.close()
-                con.close()
             except:
                 print("DB access failed:", sys.exc_info()[0], sys.exc_info()[1])
+            finally:
+                if con is not None:
+                    con.close()
             return default_value
-
 
         if download_type == '1': # download the parameters
             ulog = load_ulog_file(log_file_name)
             param_keys = sorted(ulog.initial_parameters.keys())
 
-            self.set_header("Content-Type", "text/plain")
-            self.set_header('Content-Disposition', 'inline; filename=params.txt')
+            self.set_header('Content-Type', 'application/octet-stream')
+            self.set_header("Content-Description", "File Transfer")
+            self.set_header('Content-Disposition', 'attachment; filename=vehicle.params')
 
-            delimiter = ', '
+            delimiter = '	'
             for param_key in param_keys:
+                self.write("1") #sysid
+                self.write(delimiter)
+                self.write("1") #compid
+                self.write(delimiter)
                 self.write(param_key)
                 self.write(delimiter)
                 self.write(str(ulog.initial_parameters[param_key]))
+
+                #if the value is an int write a 6, if not write a 9
+                if isinstance(ulog.initial_parameters[param_key], int):
+                    self.write(delimiter)
+                    self.write("6")
+                else:
+                    self.write(delimiter)
+                    self.write("9")
+
                 self.write('\n')
 
         elif download_type == '2': # download the kml file
@@ -85,7 +99,7 @@ class DownloadHandler(TornadoRequestHandlerBase):
 
                 def kml_colors(flight_mode):
                     """ flight mode colors for KML file """
-                    if not flight_mode in flight_modes_table: flight_mode = 0
+                    if flight_mode not in flight_modes_table: flight_mode = 0
 
                     color_str = flight_modes_table[flight_mode][1][1:] # color in form 'ff00aa'
 
@@ -107,7 +121,7 @@ class DownloadHandler(TornadoRequestHandlerBase):
                                      'vehicle_global_position', kml_colors,
                                      style=style,
                                      camera_trigger_topic_name='camera_capture')
-                    shutil.move(temp_file_name, kml_file_name)
+                    shutil.move(temp_file_name, kml_file_name, copy_function=shutil.copyfile)
                 except Exception as e:
                     print('Error creating KML file', sys.exc_info()[0], sys.exc_info()[1])
                     raise CustomHTTPError(400, 'No Position Data in log') from e
@@ -130,9 +144,10 @@ class DownloadHandler(TornadoRequestHandlerBase):
             ulog = load_ulog_file(log_file_name)
             param_keys = sorted(ulog.initial_parameters.keys())
 
-            self.set_header("Content-Type", "text/plain")
-            self.set_header('Content-Disposition', 'inline; filename=params.txt')
-            delimiter = ', '
+            self.set_header('Content-Type', 'application/octet-stream')
+            self.set_header("Content-Description", "File Transfer")
+            self.set_header('Content-Disposition', 'attachment; filename=non-default.params')
+            delimiter = '	'
 
             # Use defaults from log if available
             if ulog.has_default_parameters:
@@ -148,9 +163,22 @@ class DownloadHandler(TornadoRequestHandlerBase):
                             is_default = param_value == system_defaults[param_key]
 
                         if not is_default:
+                            self.write("1") # sysid
+                            self.write(delimiter)
+                            self.write("1") # compid
+                            self.write(delimiter)
                             self.write(param_key)
                             self.write(delimiter)
                             self.write(str(param_value))
+
+                            #if the value is an int write a 6, if not write a 9
+                            if isinstance(param_value, int):
+                                self.write(delimiter)
+                                self.write("6")
+                            else:
+                                self.write(delimiter)
+                                self.write("9")
+
                             self.write('\n')
                     except:
                         pass
@@ -172,9 +200,22 @@ class DownloadHandler(TornadoRequestHandlerBase):
                                 is_default = int(default_param['default']) == int(param_value)
 
                         if not is_default:
+                            self.write("1") # sysid
+                            self.write(delimiter)
+                            self.write("1") # compid
+                            self.write(delimiter)
                             self.write(param_key)
                             self.write(delimiter)
                             self.write(param_value)
+
+                            #if the value is an int write a 6, if not write a 9
+                            if isinstance(param_value, int):
+                                self.write(delimiter)
+                                self.write("6")
+                            else:
+                                self.write(delimiter)
+                                self.write("9")
+
                             self.write('\n')
                     except:
                         pass

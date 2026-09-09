@@ -3,6 +3,7 @@ a Leaflet map via jinja arguments """
 
 from colors import HTML_color_to_RGB
 from config_tables import flight_modes_table
+from helper import get_lat_lon_alt_deg
 
 #pylint: disable=consider-using-enumerate
 
@@ -12,7 +13,7 @@ def ulog_to_polyline(ulog, flight_mode_changes):
     """
     def rgb_colors(flight_mode):
         """ flight mode color from a flight mode """
-        if not flight_mode in flight_modes_table: flight_mode = 0
+        if flight_mode not in flight_modes_table: flight_mode = 0
 
         color_str = flight_modes_table[flight_mode][1] # color in form '#ff00aa'
         # increase brightness to match colors with template
@@ -23,24 +24,14 @@ def ulog_to_polyline(ulog, flight_mode_changes):
 
         return "#" + "".join(map(lambda x: format(x, '02x'), rgb))
     cur_data = ulog.get_dataset('vehicle_gps_position')
-    pos_lon = cur_data.data['lon']
-    pos_lat = cur_data.data['lat']
-    pos_alt = cur_data.data['alt']
+    pos_lat, pos_lon, _ = get_lat_lon_alt_deg(ulog, cur_data)
     pos_t = cur_data.data['timestamp']
 
     if 'fix_type' in cur_data.data:
         indices = cur_data.data['fix_type'] > 2  # use only data with a fix
         pos_lon = pos_lon[indices]
         pos_lat = pos_lat[indices]
-        pos_alt = pos_alt[indices]
         pos_t = pos_t[indices]
-
-    # scale if it's an integer type
-    lon_type = [f.type_str for f in cur_data.field_data if f.field_name == 'lon']
-    if len(lon_type) > 0 and lon_type[0] == 'int32_t':
-        pos_lon = pos_lon / 1e7  # to degrees
-        pos_lat = pos_lat / 1e7
-        pos_alt = pos_alt / 1e3  # to meters
 
     pos_datas = []
     flight_modes = []
@@ -50,7 +41,7 @@ def ulog_to_polyline(ulog, flight_mode_changes):
     for i in range(len(pos_lon)):
         curr_t = pos_t[i]
         if (curr_t - last_t) / 1e6 > minimum_interval_s:
-            pos_datas.append([pos_lat[i], pos_lon[i]])
+            pos_datas.append([float(pos_lat[i]), float(pos_lon[i])])
             last_t = curr_t
             while current_flight_mode_idx < len(flight_mode_changes) - 1 and \
                     flight_mode_changes[current_flight_mode_idx][0] <= curr_t:

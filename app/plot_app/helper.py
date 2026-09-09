@@ -4,9 +4,12 @@ from timeit import default_timer as timer
 import time
 import re
 import os
+import signal
+import threading
 import traceback
 import sys
 from functools import lru_cache
+from contextlib import contextmanager
 from urllib.request import urlretrieve
 import xml.etree.ElementTree # airframe parsing
 import shutil
@@ -14,12 +17,18 @@ import uuid
 
 from pyulog import *
 from pyulog.px4 import *
+from scipy.interpolate import interp1d
 
 from config_tables import *
 from config import get_log_filepath, get_airframes_filename, get_airframes_url, \
                    get_parameters_filename, get_parameters_url, \
-                   get_log_cache_size, debug_print_timing, \
+                   get_log_cache_size, get_log_load_timeout, debug_print_timing, \
                    get_releases_filename
+
+from Crypto.Cipher import ChaCha20
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Hash import SHA256
 
 #pylint: disable=line-too-long, global-variable-not-assigned,invalid-name,global-statement
 
@@ -96,7 +105,7 @@ def download_file_maybe(filename, url):
             # conditions
             temp_file_name = filename+'.'+str(uuid.uuid4())
             urlretrieve(url, temp_file_name)
-            shutil.move(temp_file_name, filename)
+            shutil.move(temp_file_name, filename, copy_function=shutil.copyfile)
         except Exception as e:
             print("Download error: "+str(e))
             __last_failed_downloads[filename] = time.time()
@@ -284,6 +293,43 @@ class ULogException(Exception):
     """
     pass
 
+
+class ULogTimeoutException(ULogException):
+    """
+    Exception to indicate that loading a log took longer than the configured
+    timeout. This usually means the storage backend (e.g. an S3 FUSE/NFS mount)
+    stalled on a read. It is a subclass of ULogException so existing handlers
+    treat it as a (transient) load error.
+    """
+    pass
+
+
+@contextmanager
+def _log_load_timeout(seconds, file_name):
+    """ abort the wrapped block after `seconds` using SIGALRM.
+
+    A stalled read on a network/FUSE filesystem blocks in a C-level syscall, so
+    a thread-based timeout cannot interrupt it; SIGALRM can. SIGALRM is only
+    deliverable on the main thread, so if we are not on the main thread (e.g.
+    called from a thread-pool executor) the timeout silently no-ops and the
+    block runs without a deadline. A value of 0 also disables the timeout.
+    """
+    if seconds <= 0 or threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def _handler(signum, frame):
+        raise ULogTimeoutException(
+            "Loading log %s timed out after %d s" % (file_name, seconds))
+
+    previous = signal.signal(signal.SIGALRM, _handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
 @lru_cache(maxsize=get_log_cache_size())
 def load_ulog_file(file_name):
     """ load an ULog file
@@ -293,8 +339,8 @@ def load_ulog_file(file_name):
     # (re)loaded on each page request. Thus the caching would not work there.
 
     # load only the messages we really need
-    msg_filter = ['battery_status', 'distance_sensor', 'estimator_status',
-                  'sensor_combined', 'cpuload',
+    msg_filter = ['battery_status', 'distance_sensor', 'esc_status',
+                  'estimator_status', 'sensor_combined', 'cpuload',
                   'vehicle_gps_position', 'vehicle_local_position',
                   'vehicle_local_position_setpoint',
                   'vehicle_global_position', 'actuator_controls_0',
@@ -311,12 +357,19 @@ def load_ulog_file(file_name):
                   'ekf2_timestamps', 'manual_control_switches', 'event',
                   'vehicle_imu_status', 'actuator_motors', 'actuator_servos',
                   'vehicle_thrust_setpoint', 'vehicle_torque_setpoint',
-                  'failsafe_flags', 'esc_status','actuator_outputs_debug',
-                  'satellite_info']
+                  'failsafe_flags', 'device_information', 'esc_status',
+                  'actuator_outputs_debug', 'satellite_info']
     try:
-        ulog = ULog(file_name, msg_filter, disable_str_exceptions=False)
+        with _log_load_timeout(get_log_load_timeout(), file_name):
+            ulog = ULog(file_name, msg_filter, disable_str_exceptions=True)
     except FileNotFoundError:
         print("Error: file %s not found" % file_name)
+        raise
+    except ULogTimeoutException:
+        # storage backend stalled - surface as-is (a ULogException subclass) so
+        # the worker recovers instead of hanging. Not cached (lru_cache only
+        # stores successful returns).
+        print("Error: loading file %s timed out" % file_name)
         raise
 
     # catch all other exceptions and turn them into an ULogException
@@ -335,6 +388,30 @@ def load_ulog_file(file_name):
 #            d.data = np.compress(non_zero_indices, d.data, axis=0)
 
     return ulog
+
+def is_valid_ulog(ulog):
+    """ check whether a loaded ULog holds actual logged data.
+    Single source of truth for the app: a file that only carries the ULog
+    header (or header + definitions, but no data messages) is not a valid log.
+    :param ulog: object returned by load_ulog_file(), or None
+    :return: bool
+    """
+    return ulog is not None and len(ulog.data_list) > 0
+
+# deliberately simple (not full RFC 5322): one '@', no whitespace, a dot in the domain
+_EMAIL_RE = re.compile(r'[^@\s]+@[^@\s]+\.[^@\s]+')
+
+def is_valid_email(email):
+    """ check whether the given string is a usable email address for
+    notifications. Single source of truth for the app.
+    :param email: str (may be empty)
+    :return: bool
+    """
+    if not isinstance(email, str):
+        return False
+    if len(email) == 0 or len(email) > 254: # RFC 5321 max address length
+        return False
+    return _EMAIL_RE.fullmatch(email) is not None
 
 class ActuatorControls:
     """
@@ -356,6 +433,18 @@ class ActuatorControls:
                         thrust_sp.data['xyz[1]']**2 + thrust_sp.data['xyz[2]']**2)
                 self._thrust_x = thrust_sp.data['xyz[0]']
                 self._thrust_z_neg = -thrust_sp.data['xyz[2]']
+                if instance != 0: # We must resample thrust to the desired instance
+                    def _resample(time_array, data, desired_time):
+                        """ resample data at a given time to a vector of desired_time """
+                        data_f = interp1d(time_array, data, fill_value='extrapolate')
+                        return data_f(desired_time)
+                    thrust_sp_instance = ulog.get_dataset('vehicle_thrust_setpoint', instance)
+                    self._thrust = _resample(thrust_sp.data['timestamp'], self._thrust,
+                                             thrust_sp_instance.data['timestamp'])
+                    self._thrust_x = _resample(thrust_sp.data['timestamp'], self._thrust_x,
+                                               thrust_sp_instance.data['timestamp'])
+                    self._thrust_z_neg = _resample(thrust_sp.data['timestamp'], self._thrust_z_neg,
+                                                   thrust_sp_instance.data['timestamp'])
             except:
                 self._thrust = None
         else:
@@ -408,6 +497,21 @@ class ActuatorControls:
     def thrust_z_neg(self):
         """ get the thrust data in -z dir """
         return self._thrust_z_neg
+
+
+def get_lat_lon_alt_deg(ulog: ULog, vehicle_gps_position_dataset: ULog.Data):
+    """
+    Get (lat, lon, alt) tuple in degrees and altitude in meters
+    """
+    if ulog.msg_info_dict.get('ver_data_format', 0) >= 2:
+        lat = vehicle_gps_position_dataset.data['latitude_deg']
+        lon = vehicle_gps_position_dataset.data['longitude_deg']
+        alt = vehicle_gps_position_dataset.data['altitude_msl_m']
+    else: # COMPATIBILITY
+        lat = vehicle_gps_position_dataset.data['lat'] / 1e7
+        lon = vehicle_gps_position_dataset.data['lon'] / 1e7
+        alt = vehicle_gps_position_dataset.data['alt'] / 1e3
+    return lat, lon, alt
 
 
 def get_airframe_name(ulog, multi_line=False):
@@ -484,3 +588,37 @@ def validate_error_ids(err_ids):
             return False
 
     return True
+
+def decrypt_ulge_payload(payload: bytes, private_key_path: str) -> bytes:
+    """Decrypt an uploaded .ulge file payload and return decrypted .ulg bytes."""
+
+    if not os.path.exists(private_key_path):
+        raise FileNotFoundError(f"Private key not found at {private_key_path}")
+
+    magic = b"ULogEnc"
+    header_size = 22
+
+    if payload[:7] != magic:
+        raise ValueError("Invalid header magic")
+    if payload[7] != 1:
+        raise ValueError("Unsupported header version")
+    if payload[16] != 4:
+        raise ValueError("Unsupported key algorithm")
+
+    key_size = payload[19] << 8 | payload[18]
+    nonce_size = payload[21] << 8 | payload[20]
+
+    cipher_text = payload[header_size:header_size + key_size]
+    nonce = payload[header_size + key_size:header_size + key_size + nonce_size]
+    encrypted_data = payload[header_size + key_size + nonce_size:]
+
+    with open(private_key_path, 'rb') as f:
+        rsa_key = RSA.import_key(f.read())
+        cipher_rsa = PKCS1_OAEP.new(rsa_key, SHA256)
+        try:
+            sym_key = cipher_rsa.decrypt(cipher_text)
+        except ValueError as e:
+            raise ValueError("Decryption failed: possibly incorrect private key or corrupt file.") from e
+
+    cipher = ChaCha20.new(key=sym_key, nonce=nonce)
+    return cipher.decrypt(encrypted_data)

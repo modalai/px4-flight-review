@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 # this is needed for the following imports
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'plot_app'))
 from config import *
+from helper import is_valid_email
 
 
 def send_notification_email(email_address, plot_url, delete_url, info):
@@ -20,7 +21,7 @@ def send_notification_email(email_address, plot_url, delete_url, info):
         :param info: dictionary with additional info
     """
 
-    if email_address == '':
+    if not is_valid_email(email_address):
         return True
 
     description = info['description']
@@ -71,9 +72,6 @@ A new flight report just got uploaded:
 
 Description: {description}
 Feedback: {feedback}
-Rating: {rating_description}
-Wind Speed: {wind_speed}
-Uploader: {uploader_email}
 
 Vehicle type: {type}
 Airframe: {airframe}

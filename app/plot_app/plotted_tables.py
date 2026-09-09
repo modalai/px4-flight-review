@@ -155,12 +155,12 @@ def get_info_table_html(ulog, px4_ulog, db_data, vehicle_data, vtol_states):
 Log timezone: {}
 <br />
 SDLOG_UTC_OFFSET: {}'''.format(utctimestamp.strftime('%d-%m-%Y %H:%M'), utc_offset_min)
-            tooltip = 'data-toggle="tooltip" data-delay=\'{"show":0, "hide":100}\' '+ \
+            tooltip = 'data-bs-toggle="tooltip" data-bs-delay=\'{"show":0, "hide":100}\' '+ \
                 'title="'+tooltip+'" '
             table_text_left.append(
                 ('Logging Start '+
-                 '<i '+tooltip+' class="fa fa-question" aria-hidden="true" '+
-                 'style="font-size: larger; color:#666"></i>',
+                 '<i '+tooltip+' class="fa-solid fa-question" aria-hidden="true" '+
+                 'style="color:#666"></i>',
                  '<span style="display:none" id="logging-start-element">'+
                  str(logging_start_time)+'</span>'))
     except:
@@ -339,8 +339,8 @@ SDLOG_UTC_OFFSET: {}'''.format(utctimestamp.strftime('%d-%m-%Y %H:%M'), utc_offs
         if tooltip is None:
             tooltip = ''
         else:
-            tooltip = 'data-toggle="tooltip" data-placement="left" '+ \
-                'data-delay=\'{"show": 1000, "hide": 100}\' title="'+tooltip+'" '
+            tooltip = 'data-bs-toggle="tooltip" data-bs-placement="left" '+ \
+                'data-bs-delay=\'{"show": 1000, "hide": 100}\' title="'+tooltip+'" '
         table = '<table '+tooltip
         if max_width is not None:
             table += ' style="max-width: '+max_width+';"'
@@ -373,9 +373,9 @@ def get_error_labels_html():
     error_label_select = \
         '<select id="error-label" class="chosen-select" multiple="True" '\
         'style="display: none; " tabindex="-1" ' \
-        'data-placeholder="Add a detected error..." " >'
+        'data-bs-placeholder="Add a detected error..." " >'
     for err_id, err_label in error_labels_table.items():
-        error_label_select += '<option data-id="{:d}">{:s}</option>'.format(err_id, err_label)
+        error_label_select += '<option data-bs-id="{:d}">{:s}</option>'.format(err_id, err_label)
     error_label_select = '<p>' + error_label_select + '</select></p>'
 
     return error_label_select
@@ -419,7 +419,7 @@ def get_hardfault_html(ulog):
     <p class="card-text">
         This log contains hardfault data from a software crash
         (see <a style="color:#fff; text-decoration: underline;"
-        href="https://docs.px4.io/master/en/debug/gdb_debugging.html#hard-fault-debugging">
+        href="https://docs.px4.io/main/en/debug/gdb_hardfault.html#hard-fault-debugging">
         here</a> how to debug).
         <br/>
         The hardfault data is shown below.
@@ -504,14 +504,15 @@ def get_changed_parameters(ulog, plot_width):
                 param_colors.append('black' if is_airframe_default else plot_color_red)
         except Exception as error:
             print(type(error), error)
-    param_data = dict(
-        names=param_names,
-        values=param_values,
-        defaults=param_defaults,
-        mins=param_mins,
-        maxs=param_maxs,
-        descriptions=param_descriptions,
-        colors=param_colors)
+    param_data = {
+        'names': param_names,
+        'values': param_values,
+        'defaults': param_defaults,
+        'mins': param_mins,
+        'maxs': param_maxs,
+        'descriptions': param_descriptions,
+        'colors': param_colors
+        }
     source = ColumnDataSource(param_data)
     formatter = HTMLTemplateFormatter(template='<font color="<%= colors %>"><%= value %></font>')
     columns = [
@@ -555,16 +556,17 @@ def get_logged_messages(ulog, plot_width):
         # in addition to an event with the same message so we can ignore those
         if m.message[-1] == '\t':
             continue
-        messages.append((m.timestamp, time_str(m.timestamp), m.log_level_str(), m.message))
+        messages.append((m.timestamp, m.log_level_str(), m.message))
 
     messages = sorted(messages, key=lambda m: m[0])
 
-    log_times, log_times_str, log_levels, log_messages = \
-        zip(*messages) if len(messages) > 0 else ([],[],[],[])
-    log_data = dict(
-        times=log_times_str,
-        levels=log_levels,
-        messages=log_messages)
+    log_times, log_levels, log_messages = zip(*messages) if len(messages) > 0 else ([],[],[])
+    log_times_str = [time_str(t) for t in log_times]
+    log_data = {
+        'times': log_times_str,
+        'levels': log_levels,
+        'messages': log_messages
+        }
     source = ColumnDataSource(log_data)
     columns = [
         TableColumn(field="times", title="Time",
@@ -578,4 +580,115 @@ def get_logged_messages(ulog, plot_width):
                            height=300, sortable=False, selectable=False,
                            autosize_mode='none')
     div = Div(text="""<b>Logged Messages</b>""", width=int(plot_width/2))
+    return column(div, data_table, width=plot_width)
+
+
+# device_information.device_type (matches MAVLink DEVICE_TYPE enum)
+_DEVICE_TYPES = {
+    0: 'Generic', 1: 'Airspeed', 2: 'ESC', 3: 'Servo', 4: 'GPS',
+    5: 'Magnetometer', 6: 'Parachute', 7: 'Rangefinder', 8: 'Winch',
+    9: 'Barometer', 10: 'Optical Flow', 11: 'Accelerometer', 12: 'Gyroscope',
+    13: 'Differential Pressure', 14: 'Battery', 15: 'Hygrometer',
+    }
+
+
+def _format_device_version(version):
+    """ DroneCAN firmware is 'major.minor.<vcs_commit>' with the commit logged in
+        decimal; render a commit-sized third field (> 0xffff) as a hex git hash. """
+    parts = version.split('.')
+    if len(parts) == 3 and parts[2].isdigit() and int(parts[2]) > 0xffff:
+        return '{:}.{:} ({:08x})'.format(parts[0], parts[1], int(parts[2]))
+    return version
+
+
+def _device_char_array(data, prefix, index, max_chars):
+    """ decode a pyulog char[N] field (stored as prefix[0], prefix[1], ... uint8
+        columns) into a printable string, stopping at the NUL terminator """
+    chars = []
+    for j in range(max_chars):
+        key = '{:}[{:}]'.format(prefix, j)
+        if key not in data:
+            break
+        char_val = int(data[key][index])
+        if char_val == 0:
+            break
+        if 32 <= char_val <= 126:
+            chars.append(chr(char_val))
+    return ''.join(chars).rstrip()
+
+
+def get_connected_devices(ulog, plot_width):
+    """
+    get a bokeh column object with a table of the devices reported via the
+    device_information topic, or None if the log contains no such data.
+    :param ulog: ULog object
+    """
+    device_datasets = [elem for elem in ulog.data_list
+                       if elem.name == 'device_information']
+    if not device_datasets:
+        return None
+
+    # device_information is published round-robin, so each device recurs across
+    # samples; dedupe on device identity rather than timestamp.
+    seen = set()
+    types = []
+    names = []
+    ids = []
+    firmwares = []
+    hardwares = []
+    serials = []
+
+    for dataset in device_datasets:
+        data = dataset.data
+        for i in range(len(data['timestamp'])):
+            device_id = int(data['device_id'][i])
+            device_type_id = int(data['device_type'][i])
+            device_type = _DEVICE_TYPES.get(
+                device_type_id, 'Unknown ({:})'.format(device_type_id))
+
+            name = _device_char_array(data, 'name', i, 80)
+
+            firmware = _device_char_array(data, 'firmware_version', i, 24)
+            hardware = _device_char_array(data, 'hardware_version', i, 24)
+            serial = _device_char_array(data, 'serial_number', i, 33)
+
+            key = (device_type, name, device_id, serial)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            types.append(device_type)
+            names.append(escape(name) if name else 'Unknown')
+            ids.append(str(device_id))
+            firmwares.append(escape(_format_device_version(firmware)))
+            hardwares.append(escape(hardware))
+            serials.append(escape(serial))
+
+    device_data = {
+        'types': types,
+        'names': names,
+        'ids': ids,
+        'firmwares': firmwares,
+        'hardwares': hardwares,
+        'serials': serials,
+        }
+    source = ColumnDataSource(device_data)
+    columns = [
+        TableColumn(field="types", title="Type",
+                    width=int(plot_width*0.13), sortable=False),
+        TableColumn(field="names", title="Name",
+                    width=int(plot_width*0.27), sortable=False),
+        TableColumn(field="ids", title="Device ID",
+                    width=int(plot_width*0.12), sortable=False),
+        TableColumn(field="firmwares", title="Firmware",
+                    width=int(plot_width*0.16), sortable=False),
+        TableColumn(field="hardwares", title="Hardware",
+                    width=int(plot_width*0.12), sortable=False),
+        TableColumn(field="serials", title="Serial",
+                    width=int(plot_width*0.20), sortable=False),
+        ]
+    data_table = DataTable(source=source, columns=columns, width=plot_width,
+                           height=300, sortable=False, selectable=False,
+                           autosize_mode='none')
+    div = Div(text="""<b>Connected Devices</b>""", width=int(plot_width/2))
     return column(div, data_table, width=plot_width)

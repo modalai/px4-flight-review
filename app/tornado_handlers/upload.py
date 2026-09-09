@@ -4,12 +4,12 @@ Tornado handler for the upload page
 
 from __future__ import print_function
 import datetime
+import json
 import os
 from html import escape
 import sys
 import uuid
 import binascii
-import sqlite3
 import tornado.web
 from tornado.ioloop import IOLoop
 
@@ -19,11 +19,13 @@ from pyulog.px4 import PX4ULog
 # this is needed for the following imports
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../plot_app'))
 from db_entry import DBVehicleData, DBData
-from config import get_db_filename, get_http_protocol, get_domain_name, \
-    email_notifications_config
+from config import get_db_connection, get_http_protocol, get_domain_name, \
+    email_notifications_config, get_ulge_private_key_path
 from helper import get_total_flight_time, validate_url, get_log_filename, \
-    load_ulog_file, get_airframe_name, ULogException
+    load_ulog_file, get_airframe_name, ULogException, ULogTimeoutException, \
+    decrypt_ulge_payload, is_valid_email, is_valid_ulog
 from overview_generator import generate_overview_img_from_id
+
 
 #pylint: disable=relative-beyond-top-level
 from .common import get_jinja_env, CustomHTTPError, generate_db_data_from_log_file, \
@@ -106,6 +108,15 @@ class UploadHandler(TornadoRequestHandlerBase):
         template = get_jinja_env().get_template(UPLOAD_TEMPLATE)
         self.write(template.render())
 
+    def _generate_unique_log_filename(self):
+        """Generate a unique log filename that does not exist yet."""
+        while True:
+            log_id = str(uuid.uuid4())
+            new_file_name = get_log_filename(log_id)
+            if not os.path.exists(new_file_name):
+                return log_id, new_file_name
+
+
     def post(self, *args, **kwargs):
         """ POST request callback """
         if self.multipart_streamer:
@@ -115,7 +126,7 @@ class UploadHandler(TornadoRequestHandlerBase):
                     ['description', 'email',
                      'allowForAnalysis', 'obfuscated', 'source', 'type',
                      'feedback', 'windSpeed', 'rating', 'videoUrl', 'public',
-                     'vehicleName'])
+                     'vehicleName', 'redirect'])
                 description = escape(form_data['description'].decode("utf-8"))
                 email = form_data['email'].decode("utf-8")
                 upload_type = 'personal'
@@ -136,6 +147,9 @@ class UploadHandler(TornadoRequestHandlerBase):
                 feedback = ''
                 if 'feedback' in form_data:
                     feedback = escape(form_data['feedback'].decode("utf-8"))
+                should_redirect = source != 'QGroundControl'
+                if 'redirect' in form_data:
+                    should_redirect = form_data['redirect'].decode("utf-8") == 'true'
                 wind_speed = -1
                 rating = ''
                 stored_email = ''
@@ -145,17 +159,19 @@ class UploadHandler(TornadoRequestHandlerBase):
                 error_labels = ''
 
                 if upload_type == 'flightreport':
-                    try:
-                        wind_speed = int(escape(form_data['windSpeed'].decode("utf-8")))
-                    except ValueError:
-                        wind_speed = -1
-                    rating = escape(form_data['rating'].decode("utf-8"))
-                    if rating == 'notset': rating = ''
-                    stored_email = email
+                    if 'windSpeed' in form_data:
+                        try:
+                            wind_speed = int(escape(form_data['windSpeed'].decode("utf-8")))
+                        except ValueError:
+                            wind_speed = -1
+                    if 'rating' in form_data:
+                        rating = escape(form_data['rating'].decode("utf-8"))
+                        if rating == 'notset': rating = ''
                     # get video url & check if valid
-                    video_url = escape(form_data['videoUrl'].decode("utf-8"), quote=True)
-                    if not validate_url(video_url):
-                        video_url = ''
+                    if 'videoUrl' in form_data:
+                        video_url = escape(form_data['videoUrl'].decode("utf-8"), quote=True)
+                        if not validate_url(video_url):
+                            video_url = ''
                     if 'vehicleName' in form_data:
                         vehicle_name = escape(form_data['vehicleName'].decode("utf-8"))
 
@@ -168,26 +184,40 @@ class UploadHandler(TornadoRequestHandlerBase):
                 file_obj = self.multipart_streamer.get_parts_by_name('filearg')[0]
                 upload_file_name = file_obj.get_filename()
 
-                while True:
-                    log_id = str(uuid.uuid4())
-                    new_file_name = get_log_filename(log_id)
-                    if not os.path.exists(new_file_name):
-                        break
+                # check if the file is encrypted
+                ulge_key_path = get_ulge_private_key_path()
+                if ulge_key_path and upload_file_name.lower().endswith('.ulge'):
+                    file_payload = file_obj.get_payload()  # full content as bytes
+                    try:
+                        decrypted_data = decrypt_ulge_payload(
+                        file_payload,
+                        get_ulge_private_key_path()
+                    )
 
-                # read file header & check if really an ULog file
-                header_len = len(ULog.HEADER_BYTES)
-                if (file_obj.get_payload_partial(header_len) !=
-                        ULog.HEADER_BYTES):
-                    if upload_file_name[-7:].lower() == '.px4log':
-                        raise CustomHTTPError(
-                            400,
-                            'Invalid File. This seems to be a px4log file. '
-                            'Upload it to <a href="http://logs.uaventure.com" '
-                            'target="_blank">logs.uaventure.com</a>.')
-                    raise CustomHTTPError(400, 'Invalid File')
+                    except Exception as e:
+                        raise CustomHTTPError(400, f"Decryption failed: {str(e)}") from e
 
-                print('Moving uploaded file to', new_file_name)
-                file_obj.move(new_file_name)
+                    if decrypted_data[:len(ULog.HEADER_BYTES)] != ULog.HEADER_BYTES:
+                        raise CustomHTTPError(400, "Decrypted file is not a valid ULog")
+
+                    # Write decrypted .ulg to disk
+                    log_id, new_file_name = self._generate_unique_log_filename()
+
+                    with open(new_file_name, 'wb') as output_file:
+                        output_file.write(decrypted_data)
+
+                    print(f"Decryption successful for {upload_file_name}, saved to {new_file_name}")
+
+                else:
+                    # Regular .ulg file
+                    log_id, new_file_name = self._generate_unique_log_filename()
+
+                    header_len = len(ULog.HEADER_BYTES)
+                    if file_obj.get_payload_partial(header_len) != ULog.HEADER_BYTES:
+                        raise CustomHTTPError(400, 'Invalid File')
+
+                    print('Moving uploaded file to', new_file_name)
+                    file_obj.move(new_file_name)
 
                 if obfuscated == 1:
                     # TODO: randomize gps data, ...
@@ -203,26 +233,29 @@ class UploadHandler(TornadoRequestHandlerBase):
                     ulog_file_name = get_log_filename(log_id)
                     ulog = load_ulog_file(ulog_file_name)
 
-
                 # put additional data into a DB
-                con = sqlite3.connect(get_db_filename())
-                cur = con.cursor()
-                cur.execute(
-                    'insert into Logs (Id, Title, Description, '
-                    'OriginalFilename, Date, AllowForAnalysis, Obfuscated, '
-                    'Source, Email, WindSpeed, Rating, Feedback, Type, '
-                    'videoUrl, ErrorLabels, Public, Token) values '
-                    '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [log_id, title, description, upload_file_name,
-                     datetime.datetime.now(), allow_for_analysis,
-                     obfuscated, source, stored_email, wind_speed, rating,
-                     feedback, upload_type, video_url, error_labels, is_public, token])
+                con = get_db_connection()
+                try:
+                    cur = con.cursor()
+                    cur.execute(
+                        'insert into Logs (Id, Title, Description, '
+                        'OriginalFilename, Date, AllowForAnalysis, Obfuscated, '
+                        'Source, Email, WindSpeed, Rating, Feedback, Type, '
+                        'videoUrl, ErrorLabels, Public, Token) values '
+                        '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [log_id, title, description, upload_file_name,
+                         datetime.datetime.now(), allow_for_analysis,
+                         obfuscated, source, stored_email, wind_speed, rating,
+                         feedback, upload_type, video_url, error_labels, is_public, token])
 
-                if ulog is not None:
-                    vehicle_data = update_vehicle_db_entry(cur, ulog, log_id, vehicle_name)
-                    vehicle_name = vehicle_data.name
+                    if ulog is not None:
+                        vehicle_data = update_vehicle_db_entry(cur, ulog, log_id, vehicle_name)
+                        vehicle_name = vehicle_data.name
 
-                con.commit()
+                    con.commit()
+                    cur.close()
+                finally:
+                    con.close()
 
                 url = '/plot_app?log='+log_id
                 full_plot_url = get_http_protocol()+'://'+get_domain_name()+url
@@ -279,28 +312,36 @@ class UploadHandler(TornadoRequestHandlerBase):
                         full_plot_url,
                         DBData.rating_str_static(rating),
                         DBData.wind_speed_str_static(wind_speed), delete_url,
-                        stored_email, info)
+                        email, info)
 
-                    # also generate the additional DB entry
-                    # (we may have the log already loaded in 'ulog', however the
-                    # lru cache will make it very quick to load it again)
-                    generate_db_data_from_log_file(log_id, con)
+                    # generate the additional DB entry (opens its own connection)
+                    generate_db_data_from_log_file(log_id)
                     # also generate the preview image
                     IOLoop.instance().add_callback(generate_overview_img_from_id, log_id)
 
-                con.commit()
-                cur.close()
-                con.close()
+                # send notification email: never for CI uploads, and only for a
+                # valid address and a log with actual data (prevents abusing the
+                # upload form as a mail relay)
+                if source != 'CI' and is_valid_email(email) and is_valid_ulog(ulog):
+                    send_notification_email(email, full_plot_url, delete_url, info)
 
-                # send notification emails
-                send_notification_email(email, full_plot_url, delete_url, info)
-
-                # do not redirect for QGC
-                if source != 'QGroundControl':
+                if should_redirect:
                     self.redirect(url)
+                else:
+                    # Return plot url as json
+                    self.write(json.dumps({"url": url}))
 
             except CustomHTTPError:
                 raise
+
+            except ULogTimeoutException as e:
+                # transient: the storage backend stalled while reading the file,
+                # not a problem with the file itself. 503 signals retryable.
+                raise CustomHTTPError(
+                    503,
+                    'The server timed out while reading your file. Your upload '
+                    'was received but could not be processed right now - please '
+                    'try uploading again in a moment.') from e
 
             except ULogException as e:
                 raise CustomHTTPError(

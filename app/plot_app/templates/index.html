@@ -1,15 +1,17 @@
 
 {% include 'header.html' %}
 
+<div class="row">
+  <div class="col-lg-8 mx-auto">
 
 {% if not internal_error %}
 
-{% if is_plot_page %}
-<div class="alert alert-primary"> <!-- alternatives: alert-info, alert-primary, alert-secondary -->
-  Do you need help with interpreting the plots?
-  See <a href="https://docs.px4.io/en/log/flight_review.html" target="_blank" class="alert-link">here</a>.
-</div>
-{% endif %}
+  {% if is_plot_page %}
+    <div class="alert alert-primary">
+      Do you need help with interpreting the plots?
+      See <a href="https://docs.px4.io/main/en/log/flight_review.html" target="_blank" class="alert-link">here</a>.
+    </div>
+  {% endif %}
 
 {{ title_html }}
 {{ hardfault_html }}
@@ -19,53 +21,59 @@
 
 {% if has_position_data %}
 
-<!-- Leaflet map plot -->
-<div id="mapid"></div>
+    <!-- Leaflet map plot -->
+    <div id="mapid"></div>
 
-<script>
-var pos_datas = {{ pos_datas }}; // list of [lat, lon] coordinates
-var pos_flight_modes = {{ pos_flight_modes }}; // list of [color, index of pos_datas]
-var waypoint_bounds = [];
+    <script>
+      var pos_datas = {{ pos_datas }}; // list of [lat, lon] coordinates
+      var pos_flight_modes = {{ pos_flight_modes }}; // list of [color, index of pos_datas]
+      var waypoint_bounds = [];
 
-var mymap = L.map('mapid').setView([pos_datas[0][0], pos_datas[0][1]],15);
-var mapboxToken = '{{ mapbox_api_access_token }}'.trim();
-if (mapboxToken.length > 0) {
-    // Mapbox satellite imagery (the old v4 raster tile API no longer serves tiles)
-    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}', {
-        attribution: 'Imagery © <a href="https://www.mapbox.com/">Mapbox</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        id: 'mapbox/satellite-v9',
-        tileSize: 512,
-        zoomOffset: -1,
-        maxZoom: 20,
-        accessToken: mapboxToken
-    }).addTo(mymap);
-} else {
-    // No Mapbox token configured: use Esri World Imagery, which needs no API key
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Imagery © <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, and the GIS User Community',
-        maxZoom: 19
-    }).addTo(mymap);
-}
+      var mymap = L.map('mapid').setView([pos_datas[0][0], pos_datas[0][1]],15);
+      var mapboxToken = '{{ mapbox_api_access_token }}'.trim();
+      if (mapboxToken.length > 0) {
+        L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}', {
+            attribution: 'Imagery © <a href="https://www.mapbox.com/">Mapbox</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            id: 'mapbox/satellite-v9',
+            tileSize: 512,
+            zoomOffset: -1,
+            maxZoom: 20,
+            accessToken: mapboxToken
+        }).addTo(mymap);
+      } else {
+        // No Mapbox token configured: use Esri World Imagery, which needs no API key
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Imagery © <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, and the GIS User Community',
+            maxZoom: 19
+        }).addTo(mymap);
+      }
 
-for(var j=0; j<pos_flight_modes.length - 1; j++) {
-  var offset = -1;
-  if(pos_flight_modes[j][1] == 0)
-    offset = 0;
-  var waypoint_polyline = pos_datas.slice(pos_flight_modes[j][1] + offset, pos_flight_modes[j+1][1]);
-  var cur_flight_color = pos_flight_modes[j][0];
-  var polyline = L.polyline(waypoint_polyline, {color: cur_flight_color}).addTo(mymap);
-  Array.prototype.push.apply(waypoint_bounds, waypoint_polyline);
-}
+      for(var j=0; j<pos_flight_modes.length - 1; j++) {
+        var offset = -1;
+        if(pos_flight_modes[j][1] == 0)
+          offset = 0;
+        var waypoint_polyline = pos_datas.slice(pos_flight_modes[j][1] + offset, pos_flight_modes[j+1][1]);
+        var cur_flight_color = pos_flight_modes[j][0];
+        var polyline = L.polyline(waypoint_polyline, {color: cur_flight_color}).addTo(mymap);
+        Array.prototype.push.apply(waypoint_bounds, waypoint_polyline);
+      }
 
-mymap.fitBounds(pos_datas);
+      mymap.fitBounds(pos_datas);
 
-</script>
+    </script>
 
 {% endif %}
 
 {% if is_plot_page %}
-
-<div id="loading-plots"><p><big><br/>Loading Plots...</big><br/></p></div>
+    <div id="loading-plots">
+      <p>
+        <big>
+          <br/>
+          Loading Plots...
+        </big>
+        <br/>
+      </p>
+    </div>
 {% endif %}
 
 {{ plot_div|indent(8) }}
@@ -74,8 +82,10 @@ mymap.fitBounds(pos_datas);
 
 {% endif %} {# internal_error #}
 
+      </div>
+    </div>
 
 {% include 'footer.html' %}
 
-</body>
+  </body>
 </html>

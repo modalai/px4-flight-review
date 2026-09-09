@@ -1,30 +1,26 @@
 """ methods an classes used for plotting (wrappers around bokeh plots) """
 import copy
 
-from bokeh.plotting import figure
-#pylint: disable=line-too-long, arguments-differ, unused-import
-from bokeh.models import (
-    ColumnDataSource, Range1d, DataRange1d, DatetimeAxis,
-    TickFormatter, DatetimeTickFormatter, FuncTickFormatter,
-    Grid, Legend, Plot, BoxAnnotation, Span, CustomJS, Rect, Circle, Line,
-    HoverTool, BoxZoomTool, PanTool, WheelZoomTool, ResetTool, SaveTool,
-    WMTSTileSource, GMapPlot, GMapOptions,
-    LabelSet, Label, ColorBar, LinearColorMapper, BasicTicker, PrintfTickFormatter
-    )
-from bokeh.palettes import viridis
-from bokeh.models.widgets import DataTable, DateFormatter, TableColumn
-from bokeh import events
-
 import numpy as np
+import pyfftw
 import scipy
 import scipy.signal
-import pyfftw
+from bokeh import events
+# pylint: disable=line-too-long, arguments-differ, unused-import
+from bokeh.models import (
+    ColumnDataSource, Range1d, CustomJSTickFormatter,
+    BoxAnnotation, Span, CustomJS, Line,
+    HoverTool, BoxZoomTool, PanTool, WheelZoomTool, ResetTool, SaveTool,
+    GMapPlot, GMapOptions,
+    LabelSet, Label, ColorBar, LinearColorMapper, BasicTicker, PrintfTickFormatter
+)
+from bokeh.plotting import figure
 
+from config import debug_verbose_output
 from downsampling import DynamicDownsample
 from helper import (
-    map_projection, WGS84_to_mercator, flight_modes_table, vtol_modes_table
-    )
-
+    map_projection, WGS84_to_mercator, flight_modes_table, vtol_modes_table, get_lat_lon_alt_deg
+)
 
 TOOLS = "pan,wheel_zoom,box_zoom,reset,save"
 ACTIVE_SCROLL_TOOLS = "wheel_zoom"
@@ -55,14 +51,14 @@ def plot_dropouts(p, dropouts, min_value, show_hover_tooltips=False):
         p.add_tools(HoverTool(tooltips=[('dropout', '@duration ms')],
                               renderers=[quad]))
 
-def add_virtual_fifo_topic_data(ulog, topic_name):
+def add_virtual_fifo_topic_data(ulog, topic_name, instance=0):
     """ adds a virtual topic by expanding the FIFO samples array into individual
         samples, so it can be used for normal plotting.
         new topic name: topic_name+'_virtual'
         :return: True if topic data was added
     """
     try:
-        cur_dataset = copy.deepcopy(ulog.get_dataset(topic_name))
+        cur_dataset = copy.deepcopy(ulog.get_dataset(topic_name, instance))
         cur_dataset.name = topic_name+'_virtual'
         t = cur_dataset.data['timestamp_sample']
         dt = cur_dataset.data['dt']
@@ -70,7 +66,7 @@ def add_virtual_fifo_topic_data(ulog, topic_name):
         scale = cur_dataset.data['scale']
         total_samples = 0
         for i in range(len(t)):
-            total_samples += samples[i]
+            total_samples += int(samples[i])
         t_new = np.zeros(total_samples, t.dtype)
         xyz_new = [np.zeros(total_samples, np.float64) for i in range(3)]
         sample = 0
@@ -81,8 +77,9 @@ def add_virtual_fifo_topic_data(ulog, topic_name):
                 for j, axis in enumerate(['x', 'y', 'z']):
                     data_point = cur_dataset.data[axis+'['+str(s)+']'][i] * scale[i]
                     xyz_new[j][sample+s] = data_point
-            sample += samples[i]
+            sample += int(samples[i])
         cur_dataset.data['timestamp'] = t_new
+        cur_dataset.data['timestamp_sample'] = t_new
         cur_dataset.data['x'] = xyz_new[0]
         cur_dataset.data['y'] = xyz_new[1]
         cur_dataset.data['z'] = xyz_new[2]
@@ -90,7 +87,8 @@ def add_virtual_fifo_topic_data(ulog, topic_name):
         return True
     except (KeyError, IndexError, ValueError) as error:
         # log does not contain the value we are looking for
-        print(type(error), "(fifo data):", error)
+        if debug_verbose_output():
+            print(type(error), "(fifo data):", error)
         return False
 
 
@@ -112,12 +110,12 @@ def plot_parameter_changes(p, plots_height, changed_parameters):
         i += 1
 
     if len(names) > 0:
-        source = ColumnDataSource(data=dict(x=timestamps, names=names, y=y_values))
+        source = ColumnDataSource(data={'x': timestamps, 'names': names, 'y': y_values})
 
         # plot as text with a fixed screen-space y offset
         labels = LabelSet(x='x', y='y', text='names',
                           y_units='screen', level='glyph', #text_alpha=0.9, text_color='black',
-                          source=source, render_mode='canvas', text_font_size='8pt')
+                          source=source, text_font_size='8pt')
         p.add_layout(labels)
         return labels
     return None
@@ -148,7 +146,7 @@ def plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states=Non
             mode_name, color = flight_modes_table[mode]
             annotation = BoxAnnotation(left=int(t_start), right=int(t_end),
                                        fill_alpha=0.09, line_color=None,
-                                       fill_color=color,
+                                       fill_color=color, movable='none', resizable='none',
                                        **added_box_annotation_args)
             p.add_layout(annotation)
 
@@ -163,11 +161,11 @@ def plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states=Non
     # plot flight mode names as labels
     # they're only visible when the mouse is over the plot
     if len(labels_text) > 0:
-        source = ColumnDataSource(data=dict(x=labels_x_pos, text=labels_text,
-                                            y=labels_y_pos, textcolor=labels_color))
+        source = ColumnDataSource(data={'x': labels_x_pos, 'text': labels_text,
+                                        'y': labels_y_pos, 'textcolor': labels_color})
         labels = LabelSet(x='x', y='y', text='text',
                           y_units='screen', level='underlay',
-                          source=source, render_mode='canvas',
+                          source=source,
                           text_font_size='10pt',
                           text_color='textcolor', text_alpha=0.85,
                           background_fill_color='white',
@@ -180,7 +178,7 @@ def plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states=Non
         code = """
         labels.visible = cb_obj.event_name == "mouseenter";
         """
-        callback = CustomJS(args=dict(labels=labels), code=code)
+        callback = CustomJS(args={'labels': labels}, code=code)
         p.js_on_event(events.MouseEnter, callback)
         p.js_on_event(events.MouseLeave, callback)
 
@@ -193,7 +191,7 @@ def plot_flight_modes_background(data_plot, flight_mode_changes, vtol_states=Non
                 mode_name, color = vtol_modes_table[mode]
                 p.add_layout(BoxAnnotation(left=int(t_start), right=int(t_end),
                                            fill_alpha=0.09, line_color=None,
-                                           fill_color=color,
+                                           fill_color=color, movable='none', resizable='none',
                                            top=vtol_state_height, top_units='screen'))
         # use screen coords so that the label always stays. It's a bit
         # unfortunate that the x position includes the x-offset of the y-axis,
@@ -222,7 +220,7 @@ def plot_set_equal_aspect_ratio(p, x, y, zoom_out_factor=1.3, min_range=5):
     y_center = (y_range[0]+y_range[1])/2
 
     # keep same aspect ratio as the plot
-    aspect = p.plot_width / p.plot_height
+    aspect = p.width / p.height
     if aspect > x_diff / y_diff:
         x_diff = y_diff * aspect
     else:
@@ -257,9 +255,7 @@ def plot_map(ulog, config, map_type='plain', api_key=None, setpoints=False,
         t = cur_dataset.data['timestamp']
         indices = cur_dataset.data['fix_type'] > 2 # use only data with a fix
         t = t[indices]
-        lon = cur_dataset.data['lon'][indices] / 1e7 # degrees
-        lat = cur_dataset.data['lat'][indices] / 1e7
-        altitude = cur_dataset.data['alt'][indices] / 1e3 # meters
+        lat, lon, _ = get_lat_lon_alt_deg(ulog, cur_dataset)
 
         plots_width = config['plot_width']
         plots_height = config['plot_height']['large']
@@ -271,7 +267,7 @@ def plot_map(ulog, config, map_type='plain', api_key=None, setpoints=False,
 
 
         if map_type == 'google':
-            data_source = ColumnDataSource(data=dict(lat=lat, lon=lon))
+            data_source = ColumnDataSource(data={'lat': lat, 'lon': lon})
 
             lon_center = (np.amin(lon) + np.amax(lon)) / 2
             lat_center = (np.amin(lat) + np.amax(lat)) / 2
@@ -282,7 +278,7 @@ def plot_map(ulog, config, map_type='plain', api_key=None, setpoints=False,
 
             p = GMapPlot(
                 x_range=Range1d(), y_range=Range1d(), map_options=map_options,
-                api_key=api_key, plot_width=plots_width, plot_height=plots_height
+                api_key=api_key, width=plots_width, height=plots_height
             )
 
             pan = PanTool()
@@ -299,11 +295,11 @@ def plot_map(ulog, config, map_type='plain', api_key=None, setpoints=False,
 
             # transform coordinates
             lon, lat = WGS84_to_mercator(lon, lat)
-            data_source = ColumnDataSource(data=dict(lat=lat, lon=lon))
+            data_source = ColumnDataSource(data={'lat': lat, 'lon': lon})
 
             p = figure(tools=TOOLS, active_scroll=ACTIVE_SCROLL_TOOLS)
-            p.plot_width = plots_width
-            p.plot_height = plots_height
+            p.width = plots_width
+            p.height = plots_height
 
             plot_set_equal_aspect_ratio(p, lon, lat)
 
@@ -359,13 +355,13 @@ def plot_map(ulog, config, map_type='plain', api_key=None, setpoints=False,
 
 
             lat, lon = map_projection(lat, lon, anchor_lat, anchor_lon)
-            data_source = ColumnDataSource(data=dict(lat=lat, lon=lon))
+            data_source = ColumnDataSource(data={'lat': lat, 'lon': lon})
 
             if bokeh_plot is None:
                 p = figure(tools=TOOLS, active_scroll=ACTIVE_SCROLL_TOOLS,
                            x_axis_label='[m]', y_axis_label='[m]')
-                p.plot_width = plots_width
-                p.plot_height = plots_height
+                p.width = plots_width
+                p.height = plots_height
 
                 plot_set_equal_aspect_ratio(p, lon, lat)
             else:
@@ -390,17 +386,18 @@ def plot_map(ulog, config, map_type='plain', api_key=None, setpoints=False,
                     lon = np.deg2rad(lon)
                     lat, lon = map_projection(lat, lon, anchor_lat, anchor_lon)
 
-                data_source = ColumnDataSource(data=dict(lat=lat, lon=lon))
+                data_source = ColumnDataSource(data={'lat': lat, 'lon': lon})
 
-                p.circle(x='lon', y='lat', source=data_source,
-                         line_width=2, size=6, line_color=config['mission_setpoint_color'],
-                         fill_color=None, legend_label='Position Setpoints')
+                p.scatter(x='lon', y='lat', source=data_source,
+                          line_width=2, size=6, line_color=config['mission_setpoint_color'],
+                          fill_color=None, legend_label='Position Setpoints')
             except:
                 pass
 
     except (KeyError, IndexError, ValueError) as error:
         # log does not contain the value we are looking for
-        print(type(error), "(vehicle_gps_position):", error)
+        if debug_verbose_output():
+            print(type(error), "(vehicle_gps_position):", error)
         return None
     p.toolbar.logo = None
     # make it possible to hide graphs by clicking on the label
@@ -450,11 +447,12 @@ class DataPlot:
 
             if y_start is not None:
                 # make sure y axis starts at y_start. We do it by adding an invisible circle
-                self._p.circle(x=int(self._cur_dataset.data['timestamp'][0]),
-                               y=y_start, size=0, alpha=0)
+                self._p.scatter(x=int(self._cur_dataset.data['timestamp'][0]),
+                                y=y_start, size=0, alpha=0)
 
         except (KeyError, IndexError, ValueError) as error:
-            print(type(error), "("+self._data_name+"):", error)
+            if debug_verbose_output():
+                print(type(error), "("+self._data_name+"):", error)
             self._had_error = True
 
     @property
@@ -502,7 +500,8 @@ class DataPlot:
             self._cur_dataset = [elem for elem in self._data
                                  if elem.name == data_name and elem.multi_id == topic_instance][0]
         except (KeyError, IndexError, ValueError) as error:
-            print(type(error), "("+self._data_name+"):", error)
+            if debug_verbose_output():
+                print(type(error), "("+self._data_name+"):", error)
             self._had_error = True
             self._cur_dataset = None
 
@@ -546,12 +545,12 @@ class DataPlot:
                     y_values = [30] * len(nan_timestamps)
                     # NaN label: add a space to separate it from the line
                     names = [' NaN'] * len(nan_timestamps)
-                    source = ColumnDataSource(data=dict(x=np.array(list(nan_timestamps)),
-                                                        names=names, y=y_values))
+                    source = ColumnDataSource(data={'x': np.array(list(nan_timestamps)),
+                                                    'names': names, 'y': y_values})
                     # plot as text with a fixed screen-space y offset
                     labels = LabelSet(x='x', y='y', text='names',
                                       y_units='screen', level='glyph', text_color=nan_color,
-                                      source=source, render_mode='canvas')
+                                      source=source)
                     p.add_layout(labels)
 
 
@@ -574,7 +573,8 @@ class DataPlot:
                            legend_label=legend, line_width=2, line_color=color)
 
         except (KeyError, IndexError, ValueError) as error:
-            print(type(error), "("+self._data_name+"):", error)
+            if debug_verbose_output():
+                print(type(error), "("+self._data_name+"):", error)
             self._had_error = True
 
     def add_circle(self, field_names, colors, legends):
@@ -591,12 +591,13 @@ class DataPlot:
             data_source = ColumnDataSource(data=data_set)
 
             for field_name, color, legend in zip(field_names_expanded, colors, legends):
-                p.circle(x='timestamp', y=field_name, source=data_source,
-                         legend_label=legend, line_width=2, size=4, line_color=color,
-                         fill_color=None)
+                p.scatter(x='timestamp', y=field_name, source=data_source,
+                          legend_label=legend, line_width=2, size=4, line_color=color,
+                          fill_color=None)
 
         except (KeyError, IndexError, ValueError) as error:
-            print(type(error), "("+self._data_name+"):", error)
+            if debug_verbose_output():
+                print(type(error), "("+self._data_name+"):", error)
             self._had_error = True
 
 
@@ -631,7 +632,8 @@ class DataPlot:
                 self._p.add_layout(data_span)
 
         except (KeyError, IndexError, ValueError) as error:
-            print(type(error), "("+self._data_name+"):", error)
+            if debug_verbose_output():
+                print(type(error), "("+self._data_name+"):", error)
             self._had_error = True
 
     def add_horizontal_background_boxes(self, colors, limits):
@@ -644,6 +646,7 @@ class DataPlot:
         for color, limit in zip(colors, limits):
             self._p.add_layout(BoxAnnotation(
                 bottom=bottom, top=limit, fill_alpha=0.09, line_alpha=1,
+                movable='none', resizable='none',
                 fill_color=color, line_width=0))
             bottom = limit
 
@@ -669,8 +672,8 @@ class DataPlot:
         plots_height = self.plot_height
         p = self._p
 
-        p.plot_width = plots_width
-        p.plot_height = plots_height
+        p.width = plots_width
+        p.height = plots_height
 
         # -> other attributes are set via theme.yaml
 
@@ -689,7 +692,7 @@ class DataPlot:
 
         # axis labels: format time
         if self._use_time_formatter:
-            p.xaxis[0].formatter = FuncTickFormatter(code='''
+            p.xaxis[0].formatter = CustomJSTickFormatter(code='''
                     //func arguments: ticks, x_range
                     // assume us ticks
                     var ms = Math.round(tick / 1000);
@@ -715,10 +718,11 @@ class DataPlot:
                         ret_val = ret_val + "." + pad(ms, 3);
                     }
                     return ret_val;
-                ''', args={'x_range' : p.x_range})
+                ''', args={'x_range': p.x_range})
 
         # make it possible to hide graphs by clicking on the label
-        p.legend.click_policy = "hide"
+        if len(p.legend) > 0:
+            p.legend.click_policy = "hide"
 
 
 class DataPlot2D(DataPlot):
@@ -740,8 +744,8 @@ class DataPlot2D(DataPlot):
         self._equal_aspect = equal_aspect
         self._is_first_graph = True
 
-        self._p.plot_width = self._config['plot_width']
-        self._p.plot_height = self._config['plot_height'][self._plot_height_name]
+        self._p.width = self._config['plot_width']
+        self._p.height = self._config['plot_height'][self._plot_height_name]
 
 
     def add_graph(self, dataset_x, dataset_y, color, legend, check_if_all_zero=False):
@@ -764,7 +768,7 @@ class DataPlot2D(DataPlot):
                 if np.count_nonzero(x) == 0 and np.count_nonzero(y) == 0:
                     raise ValueError()
 
-            data_source = ColumnDataSource(data=dict(x=x, y=y))
+            data_source = ColumnDataSource(data={'x': x, 'y': y})
 
             p.line(x="x", y="y", source=data_source, line_width=2,
                    line_color=color, legend_label=legend)
@@ -775,7 +779,8 @@ class DataPlot2D(DataPlot):
                     plot_set_equal_aspect_ratio(p, x, y)
 
         except (KeyError, IndexError, ValueError) as error:
-            print(type(error), "("+self._data_name+"):", error)
+            if debug_verbose_output():
+                print(type(error), "("+self._data_name+"):", error)
             self._had_error = True
 
 
@@ -823,9 +828,11 @@ class DataPlotSpec(DataPlot):
 
             data_set[timestamp_key] = self._cur_dataset.data[timestamp_key]
 
-            # calculate the sampling frequency
-            # (Note: logging dropouts are not taken into account here)
-            delta_t = ((data_set[timestamp_key][-1] - data_set[timestamp_key][0]) * 1.0e-6) / len(data_set[timestamp_key])
+            # calculate the sampling frequency using the median inter-sample interval
+            # to avoid bias from logging dropouts
+            dt_diff = np.diff(data_set[timestamp_key])
+            delta_t = np.median(dt_diff) * 1.0e-6
+            mean_delta_t = np.mean(dt_diff) * 1.0e-6
             if delta_t < 0.000001: # avoid division by zero
                 self._had_error = True
                 return
@@ -853,7 +860,8 @@ class DataPlotSpec(DataPlot):
 
             # offset = int(((1024/2.0)/250.0)*1e6)
             # scale time to microseconds and add start time as offset
-            time = time * 1.0e6 + self._cur_dataset.data[timestamp_key][0]
+            # stretch by mean/median to realign with actual elapsed time after dropout correction
+            time = time * (mean_delta_t / delta_t) * 1.0e6 + self._cur_dataset.data[timestamp_key][0]
 
             inner_image = 10 * np.log10(sum_psd)
             # Bokeh/JSON can't handle -inf.
@@ -897,7 +905,8 @@ class DataPlotSpec(DataPlot):
             self._p.toolbar.active_scroll = wheel_zoom
 
         except (KeyError, IndexError, ValueError, ZeroDivisionError) as error:
-            print(type(error), "(" + self._data_name + "):", error)
+            if debug_verbose_output():
+                print(type(error), "(" + self._data_name + "):", error)
             self._had_error = True
 
 class DataPlotFFT(DataPlot):
@@ -939,9 +948,9 @@ class DataPlotFFT(DataPlot):
             data_set[timestamp_key] = self._cur_dataset.data[timestamp_key]
             data_len = len(data_set[timestamp_key])
 
-            # calculate the sampling frequency
-            # (Note: logging dropouts are not taken into account here)
-            delta_t = ((data_set[timestamp_key][-1] - data_set[timestamp_key][0]) * 1.0e-6) / data_len
+            # calculate the sampling frequency using the median inter-sample interval
+            # to avoid bias from logging dropouts
+            delta_t = np.median(np.diff(data_set[timestamp_key])) * 1.0e-6
             sampling_frequency = 1.0 / delta_t
 
             if sampling_frequency < 100 or sampling_frequency == float("inf"): # require min sampling freq
@@ -985,7 +994,8 @@ class DataPlotFFT(DataPlot):
                              line_color=color, line_width=2, legend_label=legend)
 
         except (KeyError, IndexError, ValueError, ZeroDivisionError) as error:
-            print(type(error), "(" + self._data_name + "):", error)
+            if debug_verbose_output():
+                print(type(error), "(" + self._data_name + "):", error)
             self._had_error = True
 
     def mark_frequency(self, frequency, label, y_screen_offset=0):
@@ -1003,7 +1013,6 @@ class DataPlotFFT(DataPlot):
         # plot as text with a fixed screen-space y offset
         label = Label(x=frequency, y=self.plot_height/2-10-y_screen_offset,
                       text=label, y_units='screen', level='glyph',
-                      text_font_size='8pt', text_color=mark_color,
-                      render_mode='canvas')
+                      text_font_size='8pt', text_color=mark_color)
         p.add_layout(label)
 

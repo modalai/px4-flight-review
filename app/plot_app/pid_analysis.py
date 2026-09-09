@@ -245,7 +245,7 @@ class Trace:
         pad = 1024 - (len(traces[0]) % 1024)  # padding to power of 2, increases transform speed
         traces = np.pad(traces, [[0, 0], [0, pad]], mode='constant')
         trspec = np.fft.rfft(traces, axis=-1, norm='ortho')
-        trfreq = np.fft.rfftfreq(len(traces[0]), time[1] - time[0])
+        trfreq = np.fft.rfftfreq(len(traces[0]), np.median(np.diff(time)))
         return trfreq, trspec
 
     def stackfilter(self, time, trace_ref, trace_filt, window):
@@ -416,8 +416,8 @@ def plot_pid_response(trace, data, plot_config, label='Rate'):
 #            y_values = [20]
 #            # add a space to separate it from the line
 #            names = [' {:.0f} ms'.format(response_time*1000)]
-#            source = ColumnDataSource(data=dict(x=np.array([response_time]),
-#                                                names=names, y=y_values))
+#            source = ColumnDataSource(data={'x': np.array([response_time]),
+#                                                'names':names, 'y': y_values})
 #            # plot as text with a fixed screen-space y offset
 #            labels = LabelSet(x='x', y='y', text='names',
 #                              y_units='screen', level='glyph',

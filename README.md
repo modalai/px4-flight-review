@@ -41,7 +41,7 @@ Flight Review is deployed at https://review.px4.io.
 #### Ubuntu
 
 ```bash
-sudo apt-get install sqlite3 fftw3 libfftw3-dev
+sudo apt-get install sqlite3 libfftw3-bin libfftw3-dev
 ```
 
 **Note:** Under some Ubuntu and Debian environments you might have to
@@ -75,15 +75,21 @@ git submodule update --init --recursive
 
 ### Setup
 
+Initialize the Database as following:
+
+```bash
+./app/setup_db.py
+```
+
+**Note:** `setup_db.py` can also be used to upgrade the database tables, for instance when new entries are added (it automatically detects that).
+
+#### Settings
+
 - By default the app will load `config_default.ini` configuration file
 - You can override any setting from `config_default.ini` with a user config file
   `config_user.ini` (untracked)
 - Any setting on `config_user.ini` has priority over
   `config_default.ini`
-- Run `setup_db.py` to initialize the database.
-
-**Note:** `setup_db.py` can also be used to upgrade the database tables, for
-  instance when new entries are added (it automatically detects that).
 
 ## Usage
 
@@ -107,6 +113,13 @@ bokeh serve --show main.py`, to start without the html template).
 
 The whole web application is run with the `serve.py` script. Run `./serve.py -h`
 for further details.
+
+To upload one or more logs from command line, use 
+[`PX4-Autopilot/Tools/upload_log.py`](https://github.com/PX4/PX4-Autopilot/blob/main/Tools/upload_log.py)
+```bash
+cd PX4-Autopilot/Tools
+./upload_log.py --quiet --server=http://localhost:5006 <file.ulg>
+```
 
 ## Interactive Usage
 The plotting can also be used interative using a Jupyter Notebook. It
@@ -218,3 +231,5 @@ chmod u+x init-letsencrypt.sh
 ## Contributing
 Contributions are welcome! Just open a pull request with detailed description
 why the changes are needed, or open an issue for bugs, feature requests, etc...
+
+Feel free to run `./run_pylint.sh` before PR to ensure CICD checks pass on your code. 

@@ -10,7 +10,7 @@ import smopy
 import matplotlib.pyplot as plt
 
 from config import get_log_filepath, get_overview_img_filepath
-from helper import load_ulog_file
+from helper import load_ulog_file, get_lat_lon_alt_deg
 
 MAXTILES = 16
 def get_zoom(input_box, z=18):
@@ -34,6 +34,7 @@ def generate_overview_img_from_id(log_id):
 def generate_overview_img(ulog, log_id):
     ''' This funciton will generate overwie for loaded ULog data
         '''
+    os.makedirs(get_overview_img_filepath(), exist_ok=True)
     output_filename = os.path.join(get_overview_img_filepath(), log_id+'.png')
 
     if os.path.exists(output_filename):
@@ -41,10 +42,10 @@ def generate_overview_img(ulog, log_id):
 
     try:
         cur_dataset = ulog.get_dataset('vehicle_gps_position')
-        t = cur_dataset.data['timestamp']
         indices = cur_dataset.data['fix_type'] > 2 # use only data with a fix
-        lon = cur_dataset.data['lon'][indices] / 1e7 # degrees
-        lat = cur_dataset.data['lat'][indices] / 1e7
+        lat, lon, _ = get_lat_lon_alt_deg(ulog, cur_dataset)
+        lat = lat[indices]
+        lon = lon[indices]
 
         min_lat = min(lat)
         max_lat = max(lat)

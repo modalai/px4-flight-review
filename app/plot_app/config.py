@@ -1,28 +1,35 @@
 """ configuration variables """
 import configparser
 import os
+import sqlite3
 
 #pylint: disable=invalid-name
 
 # load the config
 _conf = configparser.ConfigParser()
 _cur_dir = os.path.dirname(os.path.realpath(__file__))
-_conf.read_file(open(os.path.join(_cur_dir, '../config_default.ini'), encoding='utf-8'))
+
+_default_cfg = os.path.join(_cur_dir, '../config_default.ini')
+with open(_default_cfg, encoding='utf-8') as f:
+    _conf.read_file(f)
+
 _user_config_file = os.path.join(_cur_dir, '../config_user.ini')
 _user_config_file_old = os.path.join(_cur_dir, '../../config_user.ini')
 if os.path.exists(_user_config_file_old) and not os.path.exists(_user_config_file):
     print('moving config file')
     os.rename(_user_config_file_old, _user_config_file)
+
 if os.path.exists(_user_config_file):
-    _conf.read_file(open(_user_config_file, encoding='utf-8'))
+    with open(_user_config_file, encoding='utf-8') as f:
+        _conf.read_file(f)
 
 email_config = dict(_conf.items('email'))
 
 email_notifications_config = dict(_conf.items('email_notifications'))
 email_notifications_config['public_flightreport'] = \
-    [ s.strip() for s in email_notifications_config['public_flightreport'].split(',')]
+    [ s.strip() for s in email_notifications_config['public_flightreport'].split(',') if s]
 email_notifications_config['public_flightreport_bad'] = \
-    [ s.strip() for s in email_notifications_config['public_flightreport_bad'].split(',')]
+    [ s.strip() for s in email_notifications_config['public_flightreport_bad'].split(',') if s]
 
 __DOMAIN_NAME = _conf.get('general', 'domain_name')
 __HTTP_PROTOCOL = _conf.get('general', 'http_protocol')
@@ -30,9 +37,10 @@ __AIRFRAMES_URL = _conf.get('general', 'airframes_url')
 __PARAMETERS_URL = _conf.get('general', 'parameters_url')
 __EVENTS_URL = _conf.get('general', 'events_url')
 __MAPBOX_API_ACCESS_TOKEN = _conf.get('general', 'mapbox_api_access_token')
-__BING_API_KEY = _conf.get('general', 'bing_maps_api_key')
 __CESIUM_API_KEY = _conf.get('general', 'cesium_api_key')
+__CESIUM_ENABLE_BING_AERIAL = _conf.get('general', 'cesium_enable_bing_aerial')
 __LOG_CACHE_SIZE = int(_conf.get('general', 'log_cache_size'))
+__LOG_LOAD_TIMEOUT = int(_conf.get('general', 'log_load_timeout'))
 __DB_FILENAME_CUSTOM = _conf.get('general', 'db_filename')
 
 __STORAGE_PATH = _conf.get('general', 'storage_path')
@@ -46,34 +54,36 @@ __AIRFRAMES_FILENAME = os.path.join(__CACHE_FILE_PATH, 'airframes.xml')
 __PARAMETERS_FILENAME = os.path.join(__CACHE_FILE_PATH, 'parameters.xml')
 __EVENTS_FILENAME = os.path.join(__CACHE_FILE_PATH, 'events.json.xz')
 __RELEASES_FILENAME = os.path.join(__CACHE_FILE_PATH, 'releases.json')
-__METADATA_CACHE_PATH = os.path.join(__CACHE_FILE_PATH, 'metadata')
 
 __PRINT_TIMING = int(_conf.get('debug', 'print_timing'))
 __VERBOSE_OUTPUT = int(_conf.get('debug', 'verbose_output'))
 
+__ENCRYPTION_KEY = _conf.get('general', 'ulge_private_key')
+if __ENCRYPTION_KEY == '':
+    __ENCRYPTION_KEY = None
+
 # general configuration variables for plotting
 plot_width = 840
 
-plot_color_blue = '#2877a2' # or: #3539e0
-plot_color_red = '#e0212d'
+plot_color_blue = '#56b4e9'
+plot_color_red = '#d55e00'
 
-plot_config = dict(
-    maps_line_color = plot_color_blue,
-    plot_width = plot_width,
-    plot_height = dict(
-        normal = int(plot_width / 2.1),
-        small = int(plot_width / 2.5),
-        large = int(plot_width / 1.61803398874989484), # used for the gps map
-        ),
-    )
+plot_config = {
+    'maps_line_color': plot_color_blue,
+    'plot_width': plot_width,
+    'plot_height': {
+        'normal': int(plot_width / 2.1),
+        'small': int(plot_width / 2.5),
+        'large': int(plot_width / 1.61803398874989484), # used for the gps map
+        },
+    }
 
-colors3 = [plot_color_red, '#208900', plot_color_blue]
-colors2 = [colors3[0], colors3[1]] # for data to express: 'what it is' and 'what it should be'
-colors8 = [colors3[0], colors3[1], colors3[2], '#333333', '#999999', '#e58C33',
-           '#33e5e5', '#e533e5']
+colors8 = ['#d55e00','#009e73','#55b4e9','#000000','#e69f00','#0072b2','#cc79a7','#f0e442']
+colors3 = [colors8[0], colors8[1], colors8[2]]
+colors2 = [colors8[0], colors8[1]]  # for data to express: 'what it is' and 'what it should be'
 color_gray = '#464646'
 
-plot_config['mission_setpoint_color'] = colors8[5]
+plot_config['mission_setpoint_color'] = colors8[6]
 
 
 def get_domain_name():
@@ -106,6 +116,18 @@ def get_db_filename():
         return __DB_FILENAME_CUSTOM
     return __DB_FILENAME
 
+def get_db_connection():
+    """ get a properly configured SQLite database connection with WAL mode
+    and a 30s busy timeout to handle contention from multiple workers """
+    con = sqlite3.connect(get_db_filename(),
+                          detect_types=sqlite3.PARSE_DECLTYPES,
+                          timeout=30)
+    result = con.execute('PRAGMA journal_mode=WAL').fetchone()
+    if result is None or result[0].lower() != 'wal':
+        print('Warning: failed to enable WAL mode, got: {}'.format(result))
+    con.execute('PRAGMA busy_timeout=30000')
+    return con
+
 def get_airframes_filename():
     """ get configured airframes file name """
     return __AIRFRAMES_FILENAME
@@ -126,10 +148,6 @@ def get_releases_filename():
     """ get configured releases file name """
     return __RELEASES_FILENAME
 
-def get_metadata_cache_path():
-    """ get configured metadata cache path """
-    return __METADATA_CACHE_PATH
-
 def get_parameters_filename():
     """ get configured parameters file name """
     return __PARAMETERS_FILENAME
@@ -142,17 +160,21 @@ def get_mapbox_api_access_token():
     """ get MapBox API Access Token """
     return __MAPBOX_API_ACCESS_TOKEN
 
-def get_bing_maps_api_key():
-    """ get Bing maps API key """
-    return __BING_API_KEY
-
 def get_cesium_api_key():
     """ get Cesium API key """
     return __CESIUM_API_KEY
 
+def get_cesium_enable_bing_aerial():
+    """ get Cesium bing aerial option """
+    return __CESIUM_ENABLE_BING_AERIAL
+
 def get_log_cache_size():
     """ get maximum number of cached logs in RAM """
     return __LOG_CACHE_SIZE
+
+def get_log_load_timeout():
+    """ get maximum seconds to spend loading a single log (0 = disabled) """
+    return __LOG_LOAD_TIMEOUT
 
 def debug_print_timing():
     """ print timing information? """
@@ -161,3 +183,14 @@ def debug_print_timing():
 def debug_verbose_output():
     """ print verbose output? """
     return __VERBOSE_OUTPUT == 1
+
+# Get the ULGE private key path
+def get_ulge_private_key_path():
+    """Returns the absolute path to the ULGE private key, or empty string if not set."""
+    if __ENCRYPTION_KEY is None:
+        return ''
+    if not os.path.isabs(__ENCRYPTION_KEY):
+        return os.path.join(_cur_dir, __ENCRYPTION_KEY)
+    return __ENCRYPTION_KEY
+
+

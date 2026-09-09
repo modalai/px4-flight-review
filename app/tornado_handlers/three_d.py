@@ -10,9 +10,9 @@ import numpy as np
 
 # this is needed for the following imports
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../plot_app'))
-from config import get_bing_maps_api_key, get_cesium_api_key
+from config import get_cesium_api_key, get_cesium_enable_bing_aerial
 from helper import validate_log_id, get_log_filename, load_ulog_file, \
-    get_flight_mode_changes, flight_modes_table
+    get_flight_mode_changes, flight_modes_table, get_lat_lon_alt_deg
 
 #pylint: disable=relative-beyond-top-level
 from .common import get_jinja_env, CustomHTTPError, TornadoRequestHandlerBase
@@ -38,7 +38,7 @@ class ThreeDHandler(TornadoRequestHandlerBase):
 
         try:
             # required topics: none of these are optional
-            gps_pos = ulog.get_dataset('vehicle_gps_position').data
+            gps_pos = ulog.get_dataset('vehicle_gps_position')
             attitude = ulog.get_dataset('vehicle_attitude').data
         except (KeyError, IndexError, ValueError) as error:
             raise CustomHTTPError(
@@ -54,22 +54,24 @@ class ThreeDHandler(TornadoRequestHandlerBase):
         except (KeyError, IndexError, ValueError) as error:
             pass
 
+        lat, lon, alt = get_lat_lon_alt_deg(ulog, gps_pos)
 
         # Get the takeoff location. We use the first position with a valid fix,
         # and assume that the vehicle is not in the air already at that point
         takeoff_index = 0
-        gps_indices = np.nonzero(gps_pos['fix_type'] > 2)
+        gps_indices = np.nonzero(gps_pos.data['fix_type'] > 2)
         if len(gps_indices[0]) > 0:
             takeoff_index = gps_indices[0][0]
-        takeoff_altitude = '{:.3f}' \
-            .format(gps_pos['alt'][takeoff_index] * 1.e-3)
-        takeoff_latitude = '{:.10f}'.format(gps_pos['lat'][takeoff_index] * 1.e-7)
-        takeoff_longitude = '{:.10f}'.format(gps_pos['lon'][takeoff_index] * 1.e-7)
+        takeoff_altitude = '{:.3f}' .format(alt[takeoff_index])
+        takeoff_latitude = '{:.10f}'.format(lat[takeoff_index])
+        takeoff_longitude = '{:.10f}'.format(lon[takeoff_index])
 
 
         # calculate UTC time offset (assume there's no drift over the entire log)
-        utc_offset = int(gps_pos['time_utc_usec'][takeoff_index]) - \
-                int(gps_pos['timestamp'][takeoff_index])
+        utc_offset = int(gps_pos.data['time_utc_usec'][takeoff_index]) - \
+                int(gps_pos.data['timestamp'][takeoff_index])
+        # Make sure it's not negative, in case 'time_utc_usec' is 0
+        utc_offset = max(utc_offset, 0)
 
         # flight modes
         flight_mode_changes = get_flight_mode_changes(ulog)
@@ -110,7 +112,7 @@ class ThreeDHandler(TornadoRequestHandlerBase):
 
 
         # position
-        # Note: alt_ellipsoid from gps_pos would be the better match for
+        # Note: altitude_ellipsoid_m from gps_pos would be the better match for
         # altitude, but it's not always available. And since we add an offset
         # (to match the takeoff location with the ground altitude) it does not
         # matter as much.
@@ -119,18 +121,16 @@ class ThreeDHandler(TornadoRequestHandlerBase):
         # - altitude requires an offset (to match the GPS data)
         # - it's worse for some logs where the estimation is bad -> acro flights
         #   (-> add both: user-selectable between GPS & estimated trajectory?)
-        for i in range(len(gps_pos['timestamp'])):
-            lon = gps_pos['lon'][i] * 1.e-7
-            lat = gps_pos['lat'][i] * 1.e-7
-            alt = gps_pos['alt'][i] * 1.e-3
-            t = gps_pos['timestamp'][i] + utc_offset
+        start_timestamp = 0
+        for i in range(len(gps_pos.data['timestamp'])):
+            t = gps_pos.data['timestamp'][i] + utc_offset
             utctimestamp = datetime.datetime.utcfromtimestamp(t/1.e6).replace(
                 tzinfo=datetime.timezone.utc)
             if i == 0:
                 start_timestamp = utctimestamp
             end_timestamp = utctimestamp
             position_data += '["{:}", {:.10f}, {:.10f}, {:.3f}], ' \
-                .format(utctimestamp.isoformat(), lon, lat, alt)
+                .format(utctimestamp.isoformat(), lon[i], lat[i], alt[i])
         position_data += ' ]'
 
         start_timestamp_str = '"{:}"'.format(start_timestamp.isoformat())
@@ -158,9 +158,11 @@ class ThreeDHandler(TornadoRequestHandlerBase):
         # the model_scale_factor should scale the different models to make them
         # equal in size (in proportion)
         mav_type = ulog.initial_parameters.get('MAV_TYPE', None)
+        model_heading_rotation_deg = 0
         if mav_type == 1: # fixed wing
             model_scale_factor = 0.06
             model_uri = 'plot_app/static/cesium/SampleData/models/CesiumAir/Cesium_Air.glb'
+            model_heading_rotation_deg = 90
         elif mav_type == 7: # Airship, controlled
             model_scale_factor = 0.1
             model_uri = 'plot_app/static/cesium/SampleData/models/CesiumBalloon/CesiumBalloon.glb'
@@ -174,6 +176,7 @@ class ThreeDHandler(TornadoRequestHandlerBase):
             # TODO: use the delta-quad model
             model_scale_factor = 0.06
             model_uri = 'plot_app/static/cesium/SampleData/models/CesiumAir/Cesium_Air.glb'
+            model_heading_rotation_deg = 90
         else: # TODO: handle more types
             model_scale_factor = 1
             model_uri = 'plot_app/static/cesium/models/iris/iris.glb'
@@ -192,7 +195,8 @@ class ThreeDHandler(TornadoRequestHandlerBase):
             attitude_data=attitude_data,
             model_scale_factor=model_scale_factor,
             model_uri=model_uri,
+            model_heading_rotation_deg=model_heading_rotation_deg,
             log_id=log_id,
-            bing_api_key=get_bing_maps_api_key(),
-            cesium_api_key=get_cesium_api_key()))
+            cesium_api_key=get_cesium_api_key(),
+            cesium_enable_bing_aerial=get_cesium_enable_bing_aerial()))
 
