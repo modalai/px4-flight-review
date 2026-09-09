@@ -190,11 +190,13 @@ def generate_plots(ulog, px4_ulog, db_data, vehicle_data, link_to_3d_page,
         # Leaflet Map
         try:
             pos_datas, flight_modes = ulog_to_polyline(ulog, flight_mode_changes)
-            curdoc().template_variables['pos_datas'] = pos_datas
-            curdoc().template_variables['pos_flight_modes'] = flight_modes
+            # only show the map if there is at least one valid GPS fix
+            if len(pos_datas) > 0:
+                curdoc().template_variables['pos_datas'] = pos_datas
+                curdoc().template_variables['pos_flight_modes'] = flight_modes
+                curdoc().template_variables['has_position_data'] = True
         except:
             pass
-        curdoc().template_variables['has_position_data'] = True
 
     # initialize parameter changes
     changed_params = None
