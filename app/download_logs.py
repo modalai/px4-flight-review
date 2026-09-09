@@ -205,13 +205,13 @@ def main():
         SESSION.cookies.set('_oauth2_proxy', args.cookie)
 
     try:
-        # the db_info_api sends a json file with a list of all public database entries
+        # the db_info_api sends a json file with a list of all listed database entries
         print("Fetching database info...")
         response = SESSION.get(url=args.db_info_api, timeout=5*60, allow_redirects=False)
         check_signed_in(response)
         response.raise_for_status()
         db_entries_list = response.json()
-        print(f"Found {len(db_entries_list)} total public logs in database.")
+        print(f"Found {len(db_entries_list)} listed logs in database.")
     except (requests.exceptions.RequestException, ValueError):
         print("Server request failed.")
         raise

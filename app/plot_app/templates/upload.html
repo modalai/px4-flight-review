@@ -8,7 +8,7 @@
 
 		<p>
 		Select and upload a log file for plotting and analysis.
-		You can browse through public log files on <a href="/browse">this page</a>.
+		ModalAI staff can browse uploaded log files on <a href="/browse">this page</a>.
 		</p>
 
 
@@ -41,7 +41,7 @@
 					<td class="left">Access to the log:</td>
 					<td>
 						<select class="form-select w-100" name="type" id="access" onChange="updateAccess()">
-							<option value="flightreport" selected="selected">Public</option>
+							<option value="flightreport" selected="selected">Listed</option>
 							<option value="personal">Share by Link</option>
 						</select>
 					</td>
@@ -49,17 +49,15 @@
 				<tr id="flightreport" style="display: none;">
 					<td class="left"></td>
 					<td>
-						Make this log <a href="browse">publicly available</a> on this server.
-						ModalAI engineers use public logs to investigate issues and improve VOXL software.
+						List this log on the <a href="browse">browse page</a>. Only ModalAI staff can view
+						logs on this server. Engineers use listed logs to investigate issues and improve VOXL software.
 					</td>
 				</tr>
 				<tr id="personal" style="display: none;">
 					<td class="left"></td>
 					<td>
-						The log can only be accessed with the link you'll receive after uploading.
-						</br>
-						<b>Note</b>: The log may contain location data and if you
-						share the link, it will be accessible to others as well.
+						The log is not listed on the browse page and can only be opened with the link
+						you'll receive after uploading. Viewing it still requires a modalai.com sign-in.
 					</td>
 				</tr>
 				<tr>
