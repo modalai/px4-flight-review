@@ -1,0 +1,6 @@
+# Installed on the VM as /etc/caddy/Caddyfile. Caddy terminates TLS (Let's Encrypt,
+# automatic renewal) and proxies to the flight-review container on port 5006.
+flight-review.modalai.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:5006
+}
