@@ -2,5 +2,14 @@
 # automatic renewal) and proxies to the flight-review container on port 5006.
 flight-review.modalai.com {
 	encode gzip
+
+	# Keep crawlers off: every plot page renders a full log on the server.
+	handle /robots.txt {
+		header Content-Type text/plain
+		respond "User-agent: *
+Disallow: /
+"
+	}
+
 	reverse_proxy 127.0.0.1:5006
 }
