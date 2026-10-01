@@ -10,8 +10,12 @@ from html import escape
 import sys
 import uuid
 import binascii
+import shutil
+import threading
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
 import tornado.web
-from tornado.ioloop import IOLoop
 
 from pyulog import ULog
 from pyulog.px4 import PX4ULog
@@ -23,8 +27,9 @@ from config import get_db_connection, get_http_protocol, get_domain_name, \
     email_notifications_config, get_ulge_private_key_path
 from helper import get_total_flight_time, validate_url, get_log_filename, \
     load_ulog_file, get_airframe_name, ULogException, ULogTimeoutException, \
-    decrypt_ulge_payload, is_valid_email, is_valid_ulog
-from overview_generator import generate_overview_img_from_id
+    decrypt_ulge_payload, is_valid_email, is_valid_ulog, \
+    get_stored_log_filename, get_staged_log_filename
+from overview_generator import generate_overview_img
 
 
 #pylint: disable=relative-beyond-top-level
@@ -35,6 +40,64 @@ from .multipart_streamer import MultiPartStreamer
 
 
 UPLOAD_TEMPLATE = 'upload.html'
+
+# Work an upload needs that its answer does not wait for: the generated DB
+# entry, the preview image, the emails and the copy from the staging directory
+# into the log directory. One thread per process, created after the fork.
+_BACKGROUND = None
+_BACKGROUND_LOCK = threading.Lock()
+# staged copies stay this long after they are stored, so a page that resolved
+# the staged path just before the copy finished can still open it
+STAGED_KEEP_S = 3600
+
+
+def _background():
+    global _BACKGROUND  # pylint: disable=global-statement
+    with _BACKGROUND_LOCK:
+        if _BACKGROUND is None:
+            _BACKGROUND = ThreadPoolExecutor(max_workers=1)
+        return _BACKGROUND
+
+
+def store_staged_log(log_id):
+    """ copy a staged upload into the log directory (no-op without staging) """
+    staged = get_staged_log_filename(log_id)
+    if not staged or not os.path.exists(staged):
+        return
+    stored = get_stored_log_filename(log_id)
+    if not os.path.exists(stored) or os.path.getsize(stored) != os.path.getsize(staged):
+        shutil.copyfile(staged, stored)
+    # leave the staged copy, but clear out the ones stored a while ago
+    staging_dir = os.path.dirname(staged)
+    now = time.time()
+    for name in os.listdir(staging_dir):
+        path = os.path.join(staging_dir, name)
+        if not name.endswith('.ulg') or now - os.path.getmtime(path) < STAGED_KEEP_S:
+            continue
+        stored_other = get_stored_log_filename(name[:-4])
+        if os.path.exists(stored_other) and \
+                os.path.getsize(stored_other) == os.path.getsize(path):
+            os.remove(path)
+
+
+def _finish_upload(log_id, ulog, email_job):
+    """ the slow part of an upload, after the answer went out """
+    try:
+        if email_job is not None:
+            email_job()
+        if ulog is not None:
+            # generate the additional DB entry (opens its own connection)
+            generate_db_data_from_log_file(log_id)
+            # also generate the preview image
+            generate_overview_img(ulog, log_id)
+    except Exception:  # pylint: disable=broad-except
+        print('Error finishing upload', log_id)
+        traceback.print_exc()
+    try:
+        store_staged_log(log_id)
+    except Exception:  # pylint: disable=broad-except
+        print('Error storing staged upload', log_id)
+        traceback.print_exc()
 
 
 #pylint: disable=attribute-defined-outside-init,too-many-statements, unused-argument
@@ -112,8 +175,10 @@ class UploadHandler(TornadoRequestHandlerBase):
         """Generate a unique log filename that does not exist yet."""
         while True:
             log_id = str(uuid.uuid4())
-            new_file_name = get_log_filename(log_id)
-            if not os.path.exists(new_file_name):
+            new_file_name = get_staged_log_filename(log_id) or \
+                get_stored_log_filename(log_id)
+            if not os.path.exists(new_file_name) and \
+                    not os.path.exists(get_stored_log_filename(log_id)):
                 return log_id, new_file_name
 
 
@@ -302,28 +367,35 @@ class UploadHandler(TornadoRequestHandlerBase):
                         info['software'] = ver_sw + branch_info
 
 
+                email_jobs = []
+                generate_extra = False
                 if upload_type == 'flightreport' and is_public and source != 'CI':
                     destinations = set(email_notifications_config['public_flightreport'])
                     if rating in ['unsatisfactory', 'crash_sw_hw', 'crash_pilot']:
                         destinations = destinations | \
                             set(email_notifications_config['public_flightreport_bad'])
-                    send_flightreport_email(
+                    email_jobs.append(lambda: send_flightreport_email(
                         list(destinations),
                         full_plot_url,
                         DBData.rating_str_static(rating),
                         DBData.wind_speed_str_static(wind_speed), delete_url,
-                        email, info)
-
-                    # generate the additional DB entry (opens its own connection)
-                    generate_db_data_from_log_file(log_id)
-                    # also generate the preview image
-                    IOLoop.instance().add_callback(generate_overview_img_from_id, log_id)
+                        email, info))
+                    generate_extra = True
 
                 # send notification email: never for CI uploads, and only for a
                 # valid address and a log with actual data (prevents abusing the
                 # upload form as a mail relay)
                 if source != 'CI' and is_valid_email(email) and is_valid_ulog(ulog):
-                    send_notification_email(email, full_plot_url, delete_url, info)
+                    email_jobs.append(lambda: send_notification_email(
+                        email, full_plot_url, delete_url, info))
+
+                def email_job():
+                    for job in email_jobs:
+                        job()
+
+                _background().submit(_finish_upload, log_id,
+                                     ulog if generate_extra else None,
+                                     email_job if email_jobs else None)
 
                 if should_redirect:
                     self.redirect(url)

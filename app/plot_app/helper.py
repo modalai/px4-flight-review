@@ -20,7 +20,7 @@ from pyulog.px4 import *
 from scipy.interpolate import interp1d
 
 from config_tables import *
-from config import get_log_filepath, get_airframes_filename, get_airframes_url, \
+from config import get_log_filepath, get_staging_filepath, get_airframes_filename, get_airframes_url, \
                    get_parameters_filename, get_parameters_url, \
                    get_log_cache_size, get_log_load_timeout, debug_print_timing, \
                    get_releases_filename
@@ -77,7 +77,20 @@ def get_log_filename(log_id):
     """
     if _check_log_id_is_filename():
         return log_id
+    staged = get_staged_log_filename(log_id)
+    if staged and os.path.exists(staged):
+        return staged
+    return get_stored_log_filename(log_id)
+
+def get_stored_log_filename(log_id):
+    """ the log file's place in the log directory """
     return os.path.join(get_log_filepath(), log_id + '.ulg')
+
+def get_staged_log_filename(log_id):
+    """ the log file's place in the staging directory ('' if disabled) """
+    if not get_staging_filepath():
+        return ''
+    return os.path.join(get_staging_filepath(), log_id + '.ulg')
 
 
 __last_failed_downloads = {} # dict with key=file name and a timestamp of last failed download

@@ -17,10 +17,21 @@ docker run -it --rm --network=host px4flightreview
 
 ## Server deployment
 
-On the server the app runs from `start_server.sh` (container on port 5006, proxy mode)
-behind Caddy, which serves HTTPS with an automatic Let's Encrypt certificate. Install
-Caddy from the distribution packages and copy `ops/Caddyfile` to `/etc/caddy/Caddyfile`.
+On the server the app runs from `start_server.sh` as two containers in proxy mode:
+`flight-review` on port 5006 serves the pages and plots, and `flight-review-upload` on
+port 5007 (two processes) takes the upload POSTs. Both sit behind Caddy, which serves
+HTTPS with an automatic Let's Encrypt certificate. Install Caddy from the distribution
+packages and copy `ops/Caddyfile` to `/etc/caddy/Caddyfile`.
 To deploy a new version: `git pull`, `./build_docker.sh`, `./restart_server.sh`.
+
+Logs live in the storage path (a bucket mount on the server). The DB lives on local
+disk (`FLIGHT_REVIEW_DB`, `/var/lib/flight-review/logs.sqlite`): the first start copies
+`logs.sqlite` from the storage path, and the main container copies it back there every
+ten minutes when it changed (`store_db_backup.py`). New uploads are written to
+`FLIGHT_REVIEW_STAGING` first; the upload is answered once the file is parsed and its
+DB row is in, and a background thread then generates the extra DB entry and preview
+image, sends the emails and copies the file to the storage path. On start the upload
+container copies any staged file that has not reached the storage path yet.
 
 ## Project Description
 This is a web application for flight log analysis. It allows users to upload
@@ -191,6 +202,11 @@ Edit the `.env` file according to your setup:
 - DOMAIN - The address domain name for origin, default = *
 - CERT_PATH - The SSL certificate volume path
 - EMAIL - Email for challenging Let's Encrypt DNS
+- NUM_PROCS - Number of server processes, default 1
+- ROLE - Set to `upload` for a container that only takes upload POSTs (it waits for the DB and copies staged uploads on start)
+- FLIGHT_REVIEW_DB - DB file on local disk, copied from and backed up to `logs.sqlite` in the storage path
+- FLIGHT_REVIEW_STAGING - Local directory new uploads are written to before they are copied to the storage path
+- DB_BACKUP_INTERVAL - Seconds between DB backups to the storage path, default 600
 
 ## Paths
 

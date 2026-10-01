@@ -1,5 +1,6 @@
 # Installed on the VM as /etc/caddy/Caddyfile. Caddy terminates TLS (Let's Encrypt,
-# automatic renewal) and proxies to the flight-review container on port 5006.
+# automatic renewal) and proxies to the flight-review container on port 5006, and
+# upload POSTs to the flight-review-upload container on port 5007.
 #
 # Browsing logs requires a Google sign-in with a modalai.com account. The check is
 # done by oauth2-proxy (see start_auth_proxy.sh) on port 4180. Uploading stays open.
@@ -19,6 +20,15 @@ Disallow: /
 		reverse_proxy 127.0.0.1:4180 {
 			header_up X-Real-IP {remote_host}
 		}
+	}
+
+	# Upload POSTs go to their own container, so they never queue behind a plot.
+	@upload {
+		method POST
+		path / /upload
+	}
+	handle @upload {
+		reverse_proxy 127.0.0.1:5007
 	}
 
 	# Anyone may upload: the landing/upload page, the upload POST, and the

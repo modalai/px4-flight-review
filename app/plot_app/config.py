@@ -41,7 +41,13 @@ __CESIUM_API_KEY = _conf.get('general', 'cesium_api_key')
 __CESIUM_ENABLE_BING_AERIAL = _conf.get('general', 'cesium_enable_bing_aerial')
 __LOG_CACHE_SIZE = int(_conf.get('general', 'log_cache_size'))
 __LOG_LOAD_TIMEOUT = int(_conf.get('general', 'log_load_timeout'))
-__DB_FILENAME_CUSTOM = _conf.get('general', 'db_filename')
+# FLIGHT_REVIEW_DB overrides db_filename: keeps the DB on local disk when the
+# storage path is a network mount (sqlite locking and commits are slow there)
+__DB_FILENAME_CUSTOM = os.environ.get('FLIGHT_REVIEW_DB') or \
+    _conf.get('general', 'db_filename')
+# FLIGHT_REVIEW_STAGING: local directory new uploads are written to first; they
+# are copied to the log directory in the background (empty: write directly)
+__STAGING_PATH = os.environ.get('FLIGHT_REVIEW_STAGING', '')
 
 __STORAGE_PATH = _conf.get('general', 'storage_path')
 if not os.path.isabs(__STORAGE_PATH):
@@ -97,6 +103,10 @@ def get_http_protocol():
 def get_log_filepath():
     """ get configured log files directory """
     return __LOG_FILE_PATH
+
+def get_staging_filepath():
+    """ get the local directory for new uploads (empty string if disabled) """
+    return __STAGING_PATH
 
 def get_cache_filepath():
     """ get configured cache directory """
