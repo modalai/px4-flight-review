@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -e -x
-for NAME in flight-review flight-review-upload; do
+for NAME in flight-review flight-review-upload flight-review-plot-2 flight-review-plot-3; do
 	CONTAINER_ID=`sudo docker ps -a -q --filter="name=^${NAME}$"`
 	if [ -z "$CONTAINER_ID" ]; then continue; fi
 

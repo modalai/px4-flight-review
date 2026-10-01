@@ -1,9 +1,18 @@
 # Installed on the VM as /etc/caddy/Caddyfile. Caddy terminates TLS (Let's Encrypt,
-# automatic renewal) and proxies to the flight-review container on port 5006, and
-# upload POSTs to the flight-review-upload container on port 5007.
+# automatic renewal) and proxies pages and plots to the flight-review containers on
+# ports 5006, 5008 and 5009, and upload POSTs to flight-review-upload on port 5007.
 #
 # Browsing logs requires a Google sign-in with a modalai.com account. The check is
 # done by oauth2-proxy (see start_auth_proxy.sh) on port 4180. Uploading stays open.
+# A plot page and its websocket must reach the same server process (the plot
+# lives in that process), so each browser sticks to one server via a cookie.
+(plot_servers) {
+	reverse_proxy 127.0.0.1:5006 127.0.0.1:5008 127.0.0.1:5009 {
+		lb_policy cookie fr_server
+		fail_duration 10s
+	}
+}
+
 flight-review.modalai.com {
 	encode gzip
 
@@ -35,7 +44,7 @@ Disallow: /
 	# static assets those pages need. None of these expose log data.
 	@open path / /upload /static/* /plot_app/static/*
 	handle @open {
-		reverse_proxy 127.0.0.1:5006
+		import plot_servers
 	}
 
 	# Everything else (browse, plot pages, download, 3D, edit, stats, thumbnails)
@@ -49,6 +58,6 @@ Disallow: /
 				redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
 			}
 		}
-		reverse_proxy 127.0.0.1:5006
+		import plot_servers
 	}
 }

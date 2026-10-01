@@ -17,9 +17,11 @@ docker run -it --rm --network=host px4flightreview
 
 ## Server deployment
 
-On the server the app runs from `start_server.sh` as two containers in proxy mode:
-`flight-review` on port 5006 serves the pages and plots, and `flight-review-upload` on
-port 5007 (two processes) takes the upload POSTs. Both sit behind Caddy, which serves
+On the server the app runs from `start_server.sh` as four containers in proxy mode:
+`flight-review` on port 5006 and `flight-review-plot-2`/`-3` on 5008 and 5009 serve the
+pages and plots (Caddy keeps each browser on one of them with a cookie, since a plot
+page and its websocket must reach the same process), and `flight-review-upload` on
+port 5007 (two processes) takes the upload POSTs. All sit behind Caddy, which serves
 HTTPS with an automatic Let's Encrypt certificate. Install Caddy from the distribution
 packages and copy `ops/Caddyfile` to `/etc/caddy/Caddyfile`.
 To deploy a new version: `git pull`, `./build_docker.sh`, `./restart_server.sh`.

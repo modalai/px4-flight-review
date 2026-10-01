@@ -16,10 +16,12 @@ if [ -n "${FLIGHT_REVIEW_STAGING}" ]; then
 	mkdir -p "${FLIGHT_REVIEW_STAGING}"
 fi
 
-if [ "${ROLE}" = "upload" ]; then
+if [ "${ROLE}" = "upload" ] || [ "${ROLE}" = "plot" ]; then
 	# the main container creates or restores the DB: wait for it
 	while [ ! -f ${DB_PATH} ]; do sleep 1; done
-	python3 ${WORK_PATH}/store_staged_logs.py &
+	if [ "${ROLE}" = "upload" ]; then
+		python3 ${WORK_PATH}/store_staged_logs.py &
+	fi
 else
 	if [ ! -f ${DB_PATH} ]; then
 		if [ "${DB_PATH}" != "${DATA_PATH}/logs.sqlite" ] && [ -f ${DATA_PATH}/logs.sqlite ]; then
