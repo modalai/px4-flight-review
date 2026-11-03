@@ -16,6 +16,12 @@
 flight-review.modalai.com {
 	encode gzip
 
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+
 	# Keep crawlers off: every plot page renders a full log on the server.
 	handle /robots.txt {
 		header Content-Type text/plain
