@@ -1,4 +1,6 @@
-# Installed on the VM as /etc/caddy/Caddyfile. Caddy terminates TLS (Let's Encrypt,
+# Installed on the VM as /etc/caddy/Caddyfile. Caddy comes from Caddy's own apt repo
+# (dl.cloudsmith.io/public/caddy/stable), not the older Debian package.
+# Caddy terminates TLS (Let's Encrypt,
 # automatic renewal) and proxies pages and plots to the flight-review containers on
 # ports 5006, 5008 and 5009, and upload POSTs to flight-review-upload on port 5007.
 #
